@@ -1,0 +1,7 @@
+.env
+.env.local
+.vercel
+node_modules
+data/db.json
+data/mock-google-reviews.json
+.DS_Store

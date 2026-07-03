@@ -1,6 +1,3 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { connect as tlsConnect } from "node:tls";
 import { ensureDb, loadDb, saveDb, isSupabaseConfigured } from "./storage.js";
@@ -15,15 +12,10 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
 const SMTP_FROM_NAME = process.env.SMTP_FROM_NAME || "Agent Pilot Avis";
-const ROOT = process.cwd();
-const DATA_DIR = join(ROOT, "data");
-const MOCK_GOOGLE_REVIEWS_FILE = join(DATA_DIR, "mock-google-reviews.json");
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://127.0.0.1:${PORT}`;
 
-async function ensureMockGoogleReviews() {
-  await mkdir(DATA_DIR, { recursive: true });
-  if (existsSync(MOCK_GOOGLE_REVIEWS_FILE)) return;
-  const mockReviews = [
+function getMockGoogleReviews() {
+  return [
     {
       googleReviewId: "google_demo_1",
       locationId: "demo-location",
@@ -52,7 +44,6 @@ async function ensureMockGoogleReviews() {
       createdAt: "2026-06-30T12:20:00.000Z"
     }
   ];
-  await writeFile(MOCK_GOOGLE_REVIEWS_FILE, JSON.stringify(mockReviews, null, 2));
 }
 
 function hashPassword(password) {
@@ -128,8 +119,7 @@ function publicClient(client) {
 }
 
 async function fetchUnansweredGoogleReviews(client) {
-  await ensureMockGoogleReviews();
-  const googleReviews = JSON.parse(await readFile(MOCK_GOOGLE_REVIEWS_FILE, "utf8"));
+  const googleReviews = getMockGoogleReviews();
   const locationId = client.googleLocationId || "demo-location";
   const fromDate = client.syncFromDate ? new Date(`${client.syncFromDate}T00:00:00.000Z`) : null;
   return googleReviews.filter((review) => {
@@ -599,7 +589,6 @@ function suggestReply(text, rating, replyPolicy = "") {
 
 export async function initApi() {
   await ensureDb();
-  await ensureMockGoogleReviews();
 }
 
 export function getStorageLabel() {

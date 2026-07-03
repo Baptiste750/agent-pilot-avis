@@ -55,6 +55,7 @@ create index if not exists email_logs_client_id_idx on email_logs(client_id);
 
 create table if not exists google_tokens (
   id text primary key,
+  client_id text references clients(id) on delete cascade,
   access_token text not null default '',
   refresh_token text not null default '',
   expires_at timestamptz,
@@ -63,6 +64,8 @@ create table if not exists google_tokens (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create unique index if not exists google_tokens_client_id_idx on google_tokens(client_id);
 
 alter table clients enable row level security;
 alter table reviews enable row level security;

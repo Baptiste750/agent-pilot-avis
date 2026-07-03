@@ -122,7 +122,7 @@ Important : `SMTP_PASS` doit être un mot de passe d'application Google, pas le 
 
 ## Activer Google Business Profile
 
-Cette partie permet d'utiliser ton compte Google personnel comme compte pilote. Les clients ajoutent ce compte comme co-administrateur de leur fiche, puis l'admin peut associer chaque client à son établissement Google.
+Cette partie permet à chaque client de connecter son propre compte Google Business Profile depuis son espace client. L'admin garde la supervision de l'outil, mais les accès Google restent rattachés au client concerné.
 
 Variables à ajouter dans Vercel :
 
@@ -142,7 +142,7 @@ GOOGLE_REDIRECT_URI="https://agent-pilot-avis.vercel.app/api/google/callback"
 5. Ajouter cette URL de redirection autorisée : `https://agent-pilot-avis.vercel.app/api/google/callback`.
 6. Copier le client ID et le client secret dans les variables Vercel.
 7. Redéployer l'application.
-8. Dans l'espace admin, cliquer sur `Connecter Google` et choisir le compte Google personnel.
-9. Dans chaque fiche client, choisir l'établissement Google dans `Réglages client`.
+8. Créer le client dans l'espace admin.
+9. Le client se connecte à son espace, clique sur `Connecter mon compte Google`, puis choisit la fiche d'établissement à utiliser.
 
 Important : la table Supabase `google_tokens` doit exister pour conserver la connexion Google. Elle est incluse dans [supabase/schema.sql](supabase/schema.sql).

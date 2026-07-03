@@ -64,22 +64,16 @@ function renderLogin() {
 }
 
 async function renderAdmin(selectedClientId = "") {
-  const [clientsResult, googleStatus] = await Promise.all([
-    api("/api/admin/clients"),
-    api("/api/google/status").catch(() => ({ configured: false, connected: false }))
-  ]);
-  const { clients } = clientsResult;
+  const { clients } = await api("/api/admin/clients");
   const activeClientId = selectedClientId || clients[0]?.id || "";
-  const [{ reviews }, googleLocationsResult] = await Promise.all([
+  const [{ reviews }, googleStatus] = await Promise.all([
     activeClientId ? api(`/api/reviews?clientId=${activeClientId}`) : Promise.resolve({ reviews: [] }),
-    googleStatus.connected ? api("/api/google/locations").catch((error) => ({ locations: [], error: error.message })) : Promise.resolve({ locations: [] })
+    activeClientId ? api(`/api/google/status?clientId=${activeClientId}`).catch(() => ({ configured: false, connected: false })) : Promise.resolve({ configured: false, connected: false })
   ]);
-  const googleLocations = googleLocationsResult.locations || [];
 
   layout(`
     <h1>Espace admin</h1>
     <p class="muted">Créez les comptes clients, synchronisez les avis Google non répondus et gardez la main sur les accès.</p>
-    ${googleStatusPanel(googleStatus, googleLocationsResult.error)}
     <div class="grid two">
       <aside class="panel">
         <h2>Clients</h2>
@@ -99,7 +93,7 @@ async function renderAdmin(selectedClientId = "") {
         </form>
       </aside>
       <section>
-        ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews, googleStatus, googleLocations) : "<p>Aucun client.</p>"}
+        ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews, googleStatus) : "<p>Aucun client.</p>"}
       </section>
     </div>
   `);
@@ -119,9 +113,13 @@ async function renderAdmin(selectedClientId = "") {
   });
 
   document.querySelector("[data-sync-google]")?.addEventListener("click", async () => {
-    const result = await api(`/api/sync-google-reviews/${activeClientId}`, { method: "POST" });
-    alert(`${result.imported} nouvel avis non répondu importé sur ${result.totalFound} trouvé.`);
-    renderAdmin(activeClientId);
+    try {
+      const result = await api(`/api/sync-google-reviews/${activeClientId}`, { method: "POST" });
+      alert(`${result.imported} nouvel avis non répondu importé sur ${result.totalFound} trouvé.`);
+      renderAdmin(activeClientId);
+    } catch (error) {
+      alert(error.message);
+    }
   });
 
   document.querySelector("#settings-form")?.addEventListener("submit", async (event) => {
@@ -130,8 +128,7 @@ async function renderAdmin(selectedClientId = "") {
     await api(`/api/admin/clients/${activeClientId}`, {
       method: "PATCH",
       body: {
-        syncFromDate: form.get("syncFromDate"),
-        googleLocationId: form.get("googleLocationId") || ""
+        syncFromDate: form.get("syncFromDate")
       }
     });
     renderAdmin(activeClientId);
@@ -194,37 +191,6 @@ async function renderAdmin(selectedClientId = "") {
   });
 }
 
-function googleStatusPanel(status, error = "") {
-  if (!status.configured) {
-    return `
-      <div class="panel">
-        <h2>Connexion Google</h2>
-        <p class="muted">Google n'est pas encore configuré sur Vercel. Ajoutez les clés OAuth Google pour connecter ton compte personnel.</p>
-      </div>
-    `;
-  }
-
-  if (!status.connected) {
-    return `
-      <div class="panel">
-        <h2>Connexion Google</h2>
-        <p class="muted">Connecte ton compte Google personnel. Les clients devront ajouter ce compte comme co-administrateur de leur fiche Google.</p>
-        <a class="button-link" href="/api/google/start">Connecter Google</a>
-      </div>
-    `;
-  }
-
-  return `
-    <div class="panel">
-      <h2>Connexion Google</h2>
-      <p class="muted">Compte Google connecté. Les fiches où ce compte est co-administrateur peuvent maintenant être associées aux clients.</p>
-      ${status.connectedEmail ? `<p class="muted">Compte : ${status.connectedEmail}</p>` : ""}
-      ${error ? `<p class="error">${error}</p>` : ""}
-      <a class="button-link secondary-link" href="/api/google/start">Reconnecter Google</a>
-    </div>
-  `;
-}
-
 function clientRow(client, selectedClientId) {
   const nextStatus = client.status === "active" ? "suspended" : "active";
   const label = client.status === "active" ? "Suspendre" : "Réactiver";
@@ -242,7 +208,7 @@ function clientRow(client, selectedClientId) {
   `;
 }
 
-function adminClientPanel(client, reviews, googleStatus, googleLocations) {
+function adminClientPanel(client, reviews, googleStatus) {
   const pendingReviews = reviews.filter((review) => review.status === "pending");
   const historyReviews = reviews.filter((review) => review.status !== "pending");
   const pending = pendingReviews.length;
@@ -260,6 +226,7 @@ function adminClientPanel(client, reviews, googleStatus, googleLocations) {
     <div class="panel">
       <h2>${client.businessName}</h2>
       <p class="muted">Les avis synchronisés tiennent compte de la date de début configurée pour éviter d'importer tout l'historique Google.</p>
+      <p class="muted">${adminGoogleLabel(googleStatus)}</p>
       <div class="actions">
         <button data-sync-google>Synchroniser les avis Google non répondus</button>
       </div>
@@ -267,7 +234,6 @@ function adminClientPanel(client, reviews, googleStatus, googleLocations) {
     <div class="panel">
       <h2>Réglages client</h2>
       <form id="settings-form">
-        ${googleLocationField(client, googleStatus, googleLocations)}
         <label>Date de début de synchronisation
           <input name="syncFromDate" type="date" value="${client.syncFromDate || ""}" required />
         </label>
@@ -329,31 +295,11 @@ function adminClientPanel(client, reviews, googleStatus, googleLocations) {
   `;
 }
 
-function googleLocationField(client, googleStatus, googleLocations) {
-  if (googleStatus.connected && googleLocations.length) {
-    return `
-      <label>Établissement Google
-        <select name="googleLocationId">
-          <option value="">Aucun établissement sélectionné</option>
-          ${googleLocations
-            .map(
-              (location) => `
-                <option value="${location.name}" ${client.googleLocationId === location.name ? "selected" : ""}>
-                  ${location.title}${location.address ? ` - ${location.address}` : ""}
-                </option>
-              `
-            )
-            .join("")}
-        </select>
-      </label>
-    `;
-  }
-
-  return `
-    <label>Établissement Google
-      <input name="googleLocationId" value="${client.googleLocationId || ""}" placeholder="accounts/123/locations/456" />
-    </label>
-  `;
+function adminGoogleLabel(status) {
+  if (!status.configured) return "Google n'est pas encore configuré dans Vercel.";
+  if (!status.connected) return "Le client n'a pas encore connecté son compte Google.";
+  if (!status.googleLocationId) return "Compte Google connecté, établissement pas encore choisi.";
+  return `Google connecté${status.connectedEmail ? ` : ${status.connectedEmail}` : ""}.`;
 }
 
 function renderEmailPreview(client, pendingReviews, averageRating, totalReviews) {
@@ -376,10 +322,14 @@ async function renderClient() {
     renderLogin();
     return;
   }
-  const [{ reviews }, summary] = await Promise.all([
+  const [{ reviews }, summary, googleStatus] = await Promise.all([
     api("/api/reviews"),
-    api(`/api/weekly-summary?clientId=${me.client.id}`)
+    api(`/api/weekly-summary?clientId=${me.client.id}`),
+    api("/api/google/status").catch(() => ({ configured: false, connected: false }))
   ]);
+  const googleLocationsResult = googleStatus.connected
+    ? await api("/api/google/locations").catch((error) => ({ locations: [], error: error.message }))
+    : { locations: [] };
   layout(`
     <h1>${me.client.businessName}</h1>
     <p class="muted">Modifiez les réponses proposées, puis publiez celles qui vous conviennent.</p>
@@ -388,11 +338,121 @@ async function renderClient() {
       <div class="metric"><span class="muted">À traiter</span><strong>${summary.pendingReviews}</strong></div>
       <div class="metric"><span class="muted">Moyenne</span><strong>${summary.averageRating}/5</strong></div>
     </div>
+    ${clientGooglePanel(googleStatus, googleLocationsResult)}
+    ${clientPasswordPanel(me.client)}
     <section>
       ${reviews.filter((review) => review.status === "pending").map((review) => reviewCard(review, "client")).join("") || "<p class='muted'>Aucun avis en attente.</p>"}
     </section>
   `, "Votre espace de validation");
+  document.querySelector("#client-google-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await api("/api/client/google-location", {
+        method: "PATCH",
+        body: { googleLocationId: form.get("googleLocationId") || "" }
+      });
+      alert("Établissement Google enregistré.");
+      renderClient();
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+  document.querySelector("#client-password-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    if (form.get("newPassword") !== form.get("confirmPassword")) {
+      alert("Les deux nouveaux mots de passe ne correspondent pas.");
+      return;
+    }
+    try {
+      await api("/api/client/password", {
+        method: "PATCH",
+        body: {
+          currentPassword: form.get("currentPassword"),
+          newPassword: form.get("newPassword")
+        }
+      });
+      event.currentTarget.reset();
+      alert("Mot de passe modifié.");
+    } catch (error) {
+      alert(error.message);
+    }
+  });
   wireReviewButtons(renderClient);
+}
+
+function clientGooglePanel(status, locationsResult) {
+  if (!status.configured) {
+    return `
+      <div class="panel">
+        <h2>Compte Google</h2>
+        <p class="muted">La connexion Google n'est pas encore activée sur l'application.</p>
+      </div>
+    `;
+  }
+
+  if (!status.connected) {
+    return `
+      <div class="panel">
+        <h2>Compte Google</h2>
+        <p class="muted">Connectez le compte Google qui gère votre fiche d'établissement.</p>
+        <a class="button-link" href="/api/google/start">Connecter mon compte Google</a>
+      </div>
+    `;
+  }
+
+  const locations = locationsResult.locations || [];
+  return `
+    <div class="panel">
+      <h2>Compte Google</h2>
+      <p class="muted">Compte connecté${status.connectedEmail ? ` : ${status.connectedEmail}` : ""}.</p>
+      ${locationsResult.error ? `<p class="error">${locationsResult.error}</p>` : ""}
+      <form id="client-google-form">
+        <label>Fiche d'établissement à utiliser
+          <select name="googleLocationId" ${locations.length ? "" : "disabled"}>
+            <option value="">Sélectionner un établissement</option>
+            ${locations
+              .map(
+                (location) => `
+                  <option value="${location.name}" ${status.googleLocationId === location.name ? "selected" : ""}>
+                    ${location.title}${location.address ? ` - ${location.address}` : ""}
+                  </option>
+                `
+              )
+              .join("")}
+          </select>
+        </label>
+        <div class="actions">
+          <button type="submit" ${locations.length ? "" : "disabled"}>Enregistrer l'établissement</button>
+          <a class="button-link secondary-link" href="/api/google/start">Reconnecter Google</a>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function clientPasswordPanel(client) {
+  return `
+    <div class="panel">
+      <h2>Accès au compte</h2>
+      <label>Identifiant
+        <input value="${client.email}" disabled />
+      </label>
+      <form id="client-password-form">
+        <label>Mot de passe actuel
+          <input name="currentPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <label>Nouveau mot de passe
+          <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+        </label>
+        <label>Confirmer le nouveau mot de passe
+          <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+        </label>
+        <button type="submit">Modifier le mot de passe</button>
+      </form>
+    </div>
+  `;
 }
 
 function reviewCard(review, mode = "client") {

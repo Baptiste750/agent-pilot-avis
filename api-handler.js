@@ -128,6 +128,10 @@ function publicClient(client) {
   };
 }
 
+function canAccessClient(session, clientId) {
+  return session.role === "admin" || session.userId === clientId;
+}
+
 async function fetchUnansweredGoogleReviews(db, client) {
   const googleLocation = parseGoogleLocationId(client.googleLocationId || "");
   if (isGoogleConfigured() && googleLocation) {
@@ -147,8 +151,8 @@ function isGoogleConfigured() {
   return Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
 }
 
-function getGoogleToken(db) {
-  return db.googleTokens?.find((token) => token.id === "primary") || null;
+function getGoogleToken(db, clientId) {
+  return db.googleTokens?.find((token) => token.clientId === clientId || token.id === clientId) || null;
 }
 
 function parseGoogleLocationId(value) {
@@ -161,8 +165,8 @@ function starRatingToNumber(starRating) {
   return { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 }[starRating] || Number(starRating) || 5;
 }
 
-async function googleRequest(db, url, options = {}) {
-  const accessToken = await getGoogleAccessToken(db);
+async function googleRequest(db, clientId, url, options = {}) {
+  const accessToken = await getGoogleAccessToken(db, clientId);
   const response = await fetch(url, {
     method: options.method || "GET",
     headers: {
@@ -185,8 +189,8 @@ function googleReviewIdFromName(name) {
   return String(name || "").split("/").filter(Boolean).at(-1) || "";
 }
 
-async function getGoogleAccessToken(db) {
-  const token = getGoogleToken(db);
+async function getGoogleAccessToken(db, clientId) {
+  const token = getGoogleToken(db, clientId);
   if (!token?.refreshToken) throw new Error("Google Business Profile n'est pas encore connecté.");
 
   if (token.accessToken && token.expiresAt && new Date(token.expiresAt).getTime() > Date.now() + 60_000) {
@@ -226,8 +230,8 @@ async function fetchGoogleEmail(accessToken) {
   }
 }
 
-async function listGoogleLocations(db) {
-  const accountsData = await googleRequest(db, "https://mybusinessaccountmanagement.googleapis.com/v1/accounts");
+async function listGoogleLocations(db, clientId) {
+  const accountsData = await googleRequest(db, clientId, "https://mybusinessaccountmanagement.googleapis.com/v1/accounts");
   const accounts = accountsData.accounts || [];
   const locations = [];
 
@@ -235,6 +239,7 @@ async function listGoogleLocations(db) {
     if (!account.name) continue;
     const data = await googleRequest(
       db,
+      clientId,
       `https://mybusinessbusinessinformation.googleapis.com/v1/${account.name}/locations?readMask=name,title,storefrontAddress`
     );
     for (const location of data.locations || []) {
@@ -265,6 +270,7 @@ function formatGoogleAddress(address) {
 async function fetchRealGoogleReviews(db, client, googleLocation) {
   const data = await googleRequest(
     db,
+    client.id,
     `https://mybusiness.googleapis.com/v4/accounts/${googleLocation.accountId}/locations/${googleLocation.locationId}/reviews?pageSize=50&orderBy=updateTime desc`
   );
   const fromDate = client.syncFromDate ? new Date(`${client.syncFromDate}T00:00:00.000Z`) : null;
@@ -291,6 +297,7 @@ async function replyToGoogleReview(db, owner, review, comment) {
   if (!googleLocation || !review.googleReviewId) return;
   await googleRequest(
     db,
+    owner.id,
     `https://mybusiness.googleapis.com/v4/accounts/${googleLocation.accountId}/locations/${googleLocation.locationId}/reviews/${review.googleReviewId}/reply`,
     { method: "PUT", body: { comment } }
   );
@@ -373,6 +380,7 @@ export async function handleApi(req, res) {
       redirect(res, `${APP_BASE_URL}?google=error`);
       return;
     }
+    const clientId = state.split(":")[0];
 
     try {
       const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -390,8 +398,12 @@ export async function handleApi(req, res) {
       if (!response.ok) throw new Error(data.error_description || data.error || "Erreur OAuth Google.");
 
       const db = await loadDb();
-      const existing = getGoogleToken(db);
-      const token = existing || { id: "primary", createdAt: new Date().toISOString() };
+      const client = db.clients.find((item) => item.id === clientId);
+      if (!client) throw new Error("Client introuvable pour la connexion Google.");
+
+      const existing = getGoogleToken(db, client.id);
+      const token = existing || { id: client.id, clientId: client.id, createdAt: new Date().toISOString() };
+      token.clientId = client.id;
       token.accessToken = data.access_token || token.accessToken || "";
       token.refreshToken = data.refresh_token || token.refreshToken || "";
       token.expiresAt = new Date(Date.now() + Number(data.expires_in || 3600) * 1000).toISOString();
@@ -422,21 +434,25 @@ export async function handleApi(req, res) {
   const db = await loadDb();
 
   if (url.pathname === "/api/google/status" && req.method === "GET") {
-    if (session.role !== "admin") return json(res, 403, { error: "Accès refusé." });
-    const token = getGoogleToken(db);
+    const clientId = session.role === "admin" ? url.searchParams.get("clientId") : session.userId;
+    if (!clientId || !canAccessClient(session, clientId)) return json(res, 403, { error: "Accès refusé." });
+    const client = db.clients.find((item) => item.id === clientId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    const token = getGoogleToken(db, clientId);
     json(res, 200, {
       configured: isGoogleConfigured(),
       connected: Boolean(token?.refreshToken),
       connectedEmail: token?.connectedEmail || "",
-      scope: token?.scope || ""
+      scope: token?.scope || "",
+      googleLocationId: client.googleLocationId || ""
     });
     return;
   }
 
   if (url.pathname === "/api/google/start" && req.method === "GET") {
-    if (session.role !== "admin") return json(res, 403, { error: "Accès refusé." });
+    if (session.role !== "client") return json(res, 403, { error: "Seul le client peut connecter son compte Google." });
     if (!isGoogleConfigured()) return json(res, 400, { error: "GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET ne sont pas configurés." });
-    const state = randomBytes(24).toString("hex");
+    const state = `${session.userId}:${randomBytes(24).toString("hex")}`;
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", GOOGLE_CLIENT_ID);
     authUrl.searchParams.set("redirect_uri", GOOGLE_REDIRECT_URI);
@@ -454,8 +470,9 @@ export async function handleApi(req, res) {
   }
 
   if (url.pathname === "/api/google/locations" && req.method === "GET") {
-    if (session.role !== "admin") return json(res, 403, { error: "Accès refusé." });
-    const locations = await listGoogleLocations(db);
+    const clientId = session.role === "admin" ? url.searchParams.get("clientId") : session.userId;
+    if (!clientId || !canAccessClient(session, clientId)) return json(res, 403, { error: "Accès refusé." });
+    const locations = await listGoogleLocations(db, clientId);
     json(res, 200, { locations });
     return;
   }
@@ -471,6 +488,36 @@ export async function handleApi(req, res) {
       return;
     }
     json(res, 200, { role: "client", client: publicClient(client) });
+    return;
+  }
+
+  if (url.pathname === "/api/client/google-location" && req.method === "PATCH") {
+    if (session.role !== "client") return json(res, 403, { error: "Accès refusé." });
+    const body = await readBody(req);
+    const client = db.clients.find((item) => item.id === session.userId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    client.googleLocationId = body.googleLocationId || "";
+    await saveDb(db);
+    json(res, 200, { client: publicClient(client) });
+    return;
+  }
+
+  if (url.pathname === "/api/client/password" && req.method === "PATCH") {
+    if (session.role !== "client") return json(res, 403, { error: "Accès refusé." });
+    const body = await readBody(req);
+    const client = db.clients.find((item) => item.id === session.userId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    if (!verifyPassword(body.currentPassword || "", client.passwordHash)) {
+      return json(res, 400, { error: "Mot de passe actuel incorrect." });
+    }
+    if (String(body.newPassword || "").length < 8) {
+      return json(res, 400, { error: "Le nouveau mot de passe doit contenir au moins 8 caractères." });
+    }
+    const currentToken = getCookie(req, "session");
+    client.passwordHash = hashPassword(body.newPassword);
+    db.sessions = db.sessions.filter((item) => item.userId !== client.id || item.token === currentToken);
+    await saveDb(db);
+    json(res, 200, { ok: true });
     return;
   }
 
@@ -532,6 +579,9 @@ export async function handleApi(req, res) {
     const client = db.clients.find((item) => item.id === clientId);
     if (!client) return json(res, 404, { error: "Client introuvable." });
     if (client.status !== "active") return json(res, 403, { error: "Ce compte client est suspendu." });
+    if (isGoogleConfigured() && client.googleLocationId && !getGoogleToken(db, client.id)) {
+      return json(res, 400, { error: "Le client doit d'abord connecter son compte Google." });
+    }
 
     const googleReviews = await fetchUnansweredGoogleReviews(db, client);
     let imported = 0;

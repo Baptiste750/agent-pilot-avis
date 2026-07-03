@@ -333,8 +333,10 @@ function emailLogFromRow(row) {
 }
 
 function googleTokenToRow(token) {
+  const clientId = token.clientId && token.clientId !== "primary" ? token.clientId : token.id !== "primary" ? token.id : null;
   return {
-    id: token.id || "primary",
+    id: token.id || token.clientId,
+    client_id: clientId,
     access_token: token.accessToken || "",
     refresh_token: token.refreshToken || "",
     expires_at: token.expiresAt || null,
@@ -348,6 +350,7 @@ function googleTokenToRow(token) {
 function googleTokenFromRow(row) {
   return {
     id: row.id,
+    clientId: row.client_id || row.id,
     accessToken: row.access_token,
     refreshToken: row.refresh_token,
     expiresAt: row.expires_at,

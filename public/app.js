@@ -55,8 +55,8 @@ function renderLogin() {
         method: "POST",
         body: Object.fromEntries(form.entries())
       });
-      if (result.role === "admin") renderAdmin();
-      else renderClient();
+      if (result.role === "admin") await renderAdmin();
+      else await renderClient();
     } catch (error) {
       document.querySelector("#login-error").textContent = error.message;
     }
@@ -383,8 +383,8 @@ function wireReviewButtons(afterSave) {
 async function boot() {
   try {
     const me = await api("/api/me");
-    if (me.role === "admin") renderAdmin();
-    else renderClient();
+    if (me.role === "admin") await renderAdmin();
+    else await renderClient();
   } catch {
     renderLogin();
   }

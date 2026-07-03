@@ -104,6 +104,7 @@ async function readBody(req) {
 }
 
 function publicClient(client) {
+  if (!client) return null;
   return {
     id: client.id,
     businessName: client.businessName,
@@ -211,6 +212,10 @@ export async function handleApi(req, res) {
       return;
     }
     const client = db.clients.find((item) => item.id === session.userId);
+    if (!client) {
+      json(res, 401, { error: "Session client expirée." });
+      return;
+    }
     json(res, 200, { role: "client", client: publicClient(client) });
     return;
   }

@@ -126,6 +126,44 @@ select {
   min-height: 32px;
 }
 
+.notice-root {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #abefc6;
+  border-radius: 8px;
+  background: #ecfdf3;
+  color: #05603a;
+  font-weight: 700;
+}
+
+.notice.error {
+  border-color: #fecdca;
+  background: #fef3f2;
+  color: var(--danger);
+}
+
+.notice.warning {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: var(--warning);
+}
+
+.notice-close {
+  min-height: 32px;
+}
+
 .login {
   width: min(420px, calc(100% - 32px));
   margin: 10vh auto;
@@ -271,6 +309,42 @@ h3 {
   min-height: 34px;
 }
 
+.client-select {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  min-width: 0;
+  min-height: auto;
+  padding: 10px 12px;
+  background: #fff;
+  color: var(--text);
+  border-color: var(--line);
+  text-align: left;
+}
+
+.client-select:hover,
+.client-select.selected {
+  background: #f2f8f5;
+  border-color: #9ed8c4;
+}
+
+.client-name {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.client-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.client-row-actions button {
+  min-height: 34px;
+}
+
 .review {
   padding: 20px;
   margin-bottom: 16px;
@@ -286,6 +360,12 @@ h3 {
 .stars {
   color: #f5a400;
   font-weight: 900;
+}
+
+.rating-text {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .rating-text {

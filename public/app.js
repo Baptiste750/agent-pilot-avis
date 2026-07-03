@@ -338,11 +338,15 @@ async function renderClient() {
       <div class="metric"><span class="muted">À traiter</span><strong>${summary.pendingReviews}</strong></div>
       <div class="metric"><span class="muted">Moyenne</span><strong>${summary.averageRating}/5</strong></div>
     </div>
-    ${clientGooglePanel(googleStatus, googleLocationsResult)}
-    ${clientPasswordPanel(me.client)}
-    <section>
-      ${reviews.filter((review) => review.status === "pending").map((review) => reviewCard(review, "client")).join("") || "<p class='muted'>Aucun avis en attente.</p>"}
-    </section>
+    <div class="grid two">
+      <aside>
+        ${clientGooglePanel(googleStatus, googleLocationsResult)}
+        ${clientPasswordPanel(me.client)}
+      </aside>
+      <section>
+        ${reviews.filter((review) => review.status === "pending").map((review) => reviewCard(review, "client")).join("") || "<p class='muted'>Aucun avis en attente.</p>"}
+      </section>
+    </div>
   `, "Votre espace de validation");
   document.querySelector("#client-google-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -387,7 +391,7 @@ function clientGooglePanel(status, locationsResult) {
     return `
       <div class="panel">
         <h2>Compte Google</h2>
-        <p class="muted">La connexion Google n'est pas encore activée sur l'application.</p>
+        <p class="muted">La connexion Google n'est pas encore activée par l'administrateur. Le bouton de connexion apparaîtra ici dès que l'accès Google sera configuré.</p>
       </div>
     `;
   }
@@ -435,22 +439,25 @@ function clientGooglePanel(status, locationsResult) {
 function clientPasswordPanel(client) {
   return `
     <div class="panel">
-      <h2>Accès au compte</h2>
+      <h2>Accès</h2>
       <label>Identifiant
         <input value="${client.email}" disabled />
       </label>
-      <form id="client-password-form">
-        <label>Mot de passe actuel
-          <input name="currentPassword" type="password" autocomplete="current-password" required />
-        </label>
-        <label>Nouveau mot de passe
-          <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
-        </label>
-        <label>Confirmer le nouveau mot de passe
-          <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
-        </label>
-        <button type="submit">Modifier le mot de passe</button>
-      </form>
+      <details class="compact-settings">
+        <summary>Modifier le mot de passe</summary>
+        <form id="client-password-form">
+          <label>Mot de passe actuel
+            <input name="currentPassword" type="password" autocomplete="current-password" required />
+          </label>
+          <label>Nouveau mot de passe
+            <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <label>Confirmer le nouveau mot de passe
+            <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <button type="submit">Valider</button>
+        </form>
+      </details>
     </div>
   `;
 }

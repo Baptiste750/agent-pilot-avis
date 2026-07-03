@@ -37,13 +37,12 @@ function renderLogin() {
       <p class="muted">Connectez-vous pour gérer les réponses aux avis Google.</p>
       <form id="login-form">
         <label>Email
-          <input name="email" type="email" autocomplete="email" required value="admin@agentpilotavis.local" />
+          <input name="email" type="email" autocomplete="email" required />
         </label>
         <label>Mot de passe
-          <input name="password" type="password" autocomplete="current-password" required value="admin123" />
+          <input name="password" type="password" autocomplete="current-password" required />
         </label>
         <button type="submit">Connexion</button>
-        <p class="muted">Démo client : client@demo.fr / demo123</p>
         <p class="error" id="login-error"></p>
       </form>
     </section>
@@ -303,6 +302,11 @@ function renderEmailPreview(client, pendingReviews, averageRating, totalReviews)
 
 async function renderClient() {
   const me = await api("/api/me");
+  if (!me.client?.id) {
+    await api("/api/logout", { method: "POST" });
+    renderLogin();
+    return;
+  }
   const [{ reviews }, summary] = await Promise.all([
     api("/api/reviews"),
     api(`/api/weekly-summary?clientId=${me.client.id}`)

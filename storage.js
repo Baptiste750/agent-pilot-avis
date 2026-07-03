@@ -67,18 +67,20 @@ async function ensureSupabaseSeed() {
 }
 
 async function loadSupabaseDb() {
-  const [clients, reviews, sessions, emailLogs] = await Promise.all([
+  const [clients, reviews, sessions, emailLogs, googleTokens] = await Promise.all([
     supabaseSelect("clients"),
     supabaseSelect("reviews"),
     supabaseSelect("sessions"),
-    supabaseSelect("email_logs")
+    supabaseSelect("email_logs"),
+    supabaseSelect("google_tokens").catch(() => [])
   ]);
 
   return normalizeDb({
     clients: clients.map(clientFromRow),
     reviews: reviews.map(reviewFromRow),
     sessions: sessions.map(sessionFromRow),
-    emailLogs: emailLogs.map(emailLogFromRow)
+    emailLogs: emailLogs.map(emailLogFromRow),
+    googleTokens: googleTokens.map(googleTokenFromRow)
   });
 }
 
@@ -88,6 +90,7 @@ async function saveSupabaseDb(db) {
     upsertRows("clients", normalized.clients.map(clientToRow)),
     upsertRows("reviews", normalized.reviews.map(reviewToRow)),
     upsertRows("email_logs", normalized.emailLogs.map(emailLogToRow)),
+    upsertRows("google_tokens", normalized.googleTokens.map(googleTokenToRow)),
     syncSessionRows(normalized.sessions)
   ]);
 }
@@ -186,7 +189,8 @@ function createSeedDb() {
       }
     ],
     sessions: [],
-    emailLogs: []
+    emailLogs: [],
+    googleTokens: []
   };
 }
 
@@ -195,7 +199,8 @@ function normalizeDb(db) {
     clients: db.clients || [],
     reviews: db.reviews || [],
     sessions: db.sessions || [],
-    emailLogs: db.emailLogs || []
+    emailLogs: db.emailLogs || [],
+    googleTokens: db.googleTokens || []
   };
 
   for (const client of normalized.clients) {
@@ -324,5 +329,31 @@ function emailLogFromRow(row) {
     error: row.error,
     createdAt: row.created_at,
     sentAt: row.sent_at
+  };
+}
+
+function googleTokenToRow(token) {
+  return {
+    id: token.id || "primary",
+    access_token: token.accessToken || "",
+    refresh_token: token.refreshToken || "",
+    expires_at: token.expiresAt || null,
+    scope: token.scope || "",
+    connected_email: token.connectedEmail || "",
+    created_at: token.createdAt || new Date().toISOString(),
+    updated_at: token.updatedAt || new Date().toISOString()
+  };
+}
+
+function googleTokenFromRow(row) {
+  return {
+    id: row.id,
+    accessToken: row.access_token,
+    refreshToken: row.refresh_token,
+    expiresAt: row.expires_at,
+    scope: row.scope,
+    connectedEmail: row.connected_email,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }

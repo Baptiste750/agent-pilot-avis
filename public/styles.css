@@ -224,7 +224,11 @@ textarea {
   align-items: center;
 }
 
-button {
+button,
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 40px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -233,9 +237,11 @@ button {
   background: var(--brand);
   color: white;
   font-weight: 700;
+  text-decoration: none;
 }
 
-button:hover {
+button:hover,
+.button-link:hover {
   background: var(--brand-dark);
 }
 
@@ -250,8 +256,15 @@ button.secondary {
   border-color: var(--line);
 }
 
-button.secondary:hover {
+button.secondary:hover,
+.secondary-link:hover {
   background: #f2f4f7;
+}
+
+.secondary-link {
+  background: #fff;
+  color: var(--text);
+  border-color: var(--line);
 }
 
 button.danger {

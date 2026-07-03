@@ -64,13 +64,22 @@ function renderLogin() {
 }
 
 async function renderAdmin(selectedClientId = "") {
-  const { clients } = await api("/api/admin/clients");
+  const [clientsResult, googleStatus] = await Promise.all([
+    api("/api/admin/clients"),
+    api("/api/google/status").catch(() => ({ configured: false, connected: false }))
+  ]);
+  const { clients } = clientsResult;
   const activeClientId = selectedClientId || clients[0]?.id || "";
-  const { reviews } = activeClientId ? await api(`/api/reviews?clientId=${activeClientId}`) : { reviews: [] };
+  const [{ reviews }, googleLocationsResult] = await Promise.all([
+    activeClientId ? api(`/api/reviews?clientId=${activeClientId}`) : Promise.resolve({ reviews: [] }),
+    googleStatus.connected ? api("/api/google/locations").catch((error) => ({ locations: [], error: error.message })) : Promise.resolve({ locations: [] })
+  ]);
+  const googleLocations = googleLocationsResult.locations || [];
 
   layout(`
     <h1>Espace admin</h1>
     <p class="muted">Créez les comptes clients, synchronisez les avis Google non répondus et gardez la main sur les accès.</p>
+    ${googleStatusPanel(googleStatus, googleLocationsResult.error)}
     <div class="grid two">
       <aside class="panel">
         <h2>Clients</h2>
@@ -90,7 +99,7 @@ async function renderAdmin(selectedClientId = "") {
         </form>
       </aside>
       <section>
-        ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews) : "<p>Aucun client.</p>"}
+        ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews, googleStatus, googleLocations) : "<p>Aucun client.</p>"}
       </section>
     </div>
   `);
@@ -121,7 +130,8 @@ async function renderAdmin(selectedClientId = "") {
     await api(`/api/admin/clients/${activeClientId}`, {
       method: "PATCH",
       body: {
-        syncFromDate: form.get("syncFromDate")
+        syncFromDate: form.get("syncFromDate"),
+        googleLocationId: form.get("googleLocationId") || ""
       }
     });
     renderAdmin(activeClientId);
@@ -184,6 +194,37 @@ async function renderAdmin(selectedClientId = "") {
   });
 }
 
+function googleStatusPanel(status, error = "") {
+  if (!status.configured) {
+    return `
+      <div class="panel">
+        <h2>Connexion Google</h2>
+        <p class="muted">Google n'est pas encore configuré sur Vercel. Ajoutez les clés OAuth Google pour connecter ton compte personnel.</p>
+      </div>
+    `;
+  }
+
+  if (!status.connected) {
+    return `
+      <div class="panel">
+        <h2>Connexion Google</h2>
+        <p class="muted">Connecte ton compte Google personnel. Les clients devront ajouter ce compte comme co-administrateur de leur fiche Google.</p>
+        <a class="button-link" href="/api/google/start">Connecter Google</a>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="panel">
+      <h2>Connexion Google</h2>
+      <p class="muted">Compte Google connecté. Les fiches où ce compte est co-administrateur peuvent maintenant être associées aux clients.</p>
+      ${status.connectedEmail ? `<p class="muted">Compte : ${status.connectedEmail}</p>` : ""}
+      ${error ? `<p class="error">${error}</p>` : ""}
+      <a class="button-link secondary-link" href="/api/google/start">Reconnecter Google</a>
+    </div>
+  `;
+}
+
 function clientRow(client, selectedClientId) {
   const nextStatus = client.status === "active" ? "suspended" : "active";
   const label = client.status === "active" ? "Suspendre" : "Réactiver";
@@ -201,7 +242,7 @@ function clientRow(client, selectedClientId) {
   `;
 }
 
-function adminClientPanel(client, reviews) {
+function adminClientPanel(client, reviews, googleStatus, googleLocations) {
   const pendingReviews = reviews.filter((review) => review.status === "pending");
   const historyReviews = reviews.filter((review) => review.status !== "pending");
   const pending = pendingReviews.length;
@@ -226,6 +267,7 @@ function adminClientPanel(client, reviews) {
     <div class="panel">
       <h2>Réglages client</h2>
       <form id="settings-form">
+        ${googleLocationField(client, googleStatus, googleLocations)}
         <label>Date de début de synchronisation
           <input name="syncFromDate" type="date" value="${client.syncFromDate || ""}" required />
         </label>
@@ -287,6 +329,33 @@ function adminClientPanel(client, reviews) {
   `;
 }
 
+function googleLocationField(client, googleStatus, googleLocations) {
+  if (googleStatus.connected && googleLocations.length) {
+    return `
+      <label>Établissement Google
+        <select name="googleLocationId">
+          <option value="">Aucun établissement sélectionné</option>
+          ${googleLocations
+            .map(
+              (location) => `
+                <option value="${location.name}" ${client.googleLocationId === location.name ? "selected" : ""}>
+                  ${location.title}${location.address ? ` - ${location.address}` : ""}
+                </option>
+              `
+            )
+            .join("")}
+        </select>
+      </label>
+    `;
+  }
+
+  return `
+    <label>Établissement Google
+      <input name="googleLocationId" value="${client.googleLocationId || ""}" placeholder="accounts/123/locations/456" />
+    </label>
+  `;
+}
+
 function renderEmailPreview(client, pendingReviews, averageRating, totalReviews) {
   const template =
     client.emailTemplate ||
@@ -297,7 +366,7 @@ function renderEmailPreview(client, pendingReviews, averageRating, totalReviews)
     .replaceAll("{{pendingReviews}}", String(pendingReviews))
     .replaceAll("{{totalReviews}}", String(totalReviews))
     .replaceAll("{{averageRating}}", String(averageRating))
-    .replaceAll("{{loginUrl}}", "http://127.0.0.1:4173");
+    .replaceAll("{{loginUrl}}", window.location.origin);
 }
 
 async function renderClient() {

@@ -119,3 +119,30 @@ Important : `SMTP_PASS` doit être un mot de passe d'application Google, pas le 
 1. Activer la validation en deux étapes sur le compte Gmail.
 2. Créer un mot de passe d'application pour l'app.
 3. Utiliser ce mot de passe dans `SMTP_PASS`.
+
+## Activer Google Business Profile
+
+Cette partie permet d'utiliser ton compte Google personnel comme compte pilote. Les clients ajoutent ce compte comme co-administrateur de leur fiche, puis l'admin peut associer chaque client à son établissement Google.
+
+Variables à ajouter dans Vercel :
+
+```bash
+APP_BASE_URL="https://agent-pilot-avis.vercel.app"
+GOOGLE_CLIENT_ID="votre-client-id-google"
+GOOGLE_CLIENT_SECRET="votre-client-secret-google"
+GOOGLE_REDIRECT_URI="https://agent-pilot-avis.vercel.app/api/google/callback"
+```
+
+Étapes côté Google Cloud :
+
+1. Créer ou ouvrir un projet Google Cloud.
+2. Activer les API Google Business Profile utiles : Business Profile / My Business, Account Management et Business Information.
+3. Configurer l'écran de consentement OAuth.
+4. Créer un identifiant OAuth de type application web.
+5. Ajouter cette URL de redirection autorisée : `https://agent-pilot-avis.vercel.app/api/google/callback`.
+6. Copier le client ID et le client secret dans les variables Vercel.
+7. Redéployer l'application.
+8. Dans l'espace admin, cliquer sur `Connecter Google` et choisir le compte Google personnel.
+9. Dans chaque fiche client, choisir l'établissement Google dans `Réglages client`.
+
+Important : la table Supabase `google_tokens` doit exister pour conserver la connexion Google. Elle est incluse dans [supabase/schema.sql](supabase/schema.sql).

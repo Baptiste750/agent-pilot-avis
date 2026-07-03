@@ -53,7 +53,19 @@ create table if not exists email_logs (
 
 create index if not exists email_logs_client_id_idx on email_logs(client_id);
 
+create table if not exists google_tokens (
+  id text primary key,
+  access_token text not null default '',
+  refresh_token text not null default '',
+  expires_at timestamptz,
+  scope text default '',
+  connected_email text default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table clients enable row level security;
 alter table reviews enable row level security;
 alter table sessions enable row level security;
 alter table email_logs enable row level security;
+alter table google_tokens enable row level security;

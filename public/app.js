@@ -1,5 +1,13 @@
 const app = document.querySelector("#app");
 
+const STATUS_LABELS = {
+  active: "actif",
+  suspended: "suspendu",
+  pending: "en attente",
+  published: "publié",
+  ignored: "ignoré"
+};
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "content-type": "application/json" },
@@ -21,12 +29,62 @@ function layout(content, subtitle = "Réponses aux avis Google assistées par IA
         </div>
         <button class="secondary" data-action="logout">Se déconnecter</button>
       </header>
+      <div id="notice-root" class="notice-root" aria-live="polite"></div>
       <section class="page">${content}</section>
     </div>
   `;
   app.querySelector("[data-action='logout']")?.addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });
     renderLogin();
+  });
+}
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status || "";
+}
+
+function showNotice(message, type = "success") {
+  const root = document.querySelector("#notice-root");
+  if (!root) return;
+  root.innerHTML = `
+    <div class="notice ${type}">
+      <span>${message}</span>
+      <button class="secondary notice-close" type="button" aria-label="Fermer le message">Fermer</button>
+    </div>
+  `;
+  root.querySelector(".notice-close")?.addEventListener("click", () => {
+    root.innerHTML = "";
+  });
+  window.setTimeout(() => {
+    if (root.querySelector(".notice")) root.innerHTML = "";
+  }, 5000);
+}
+
+function confirmAction({ title, message, confirmLabel = "Confirmer" }) {
+  return new Promise((resolve) => {
+    const modal = document.createElement("div");
+    modal.className = "modal-backdrop";
+    modal.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 id="confirm-title">${title}</h2>
+        <p class="muted">${message}</p>
+        <div class="actions">
+          <button type="button" data-confirm>${confirmLabel}</button>
+          <button class="secondary" type="button" data-cancel>Annuler</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("[data-confirm]").focus();
+    const close = (answer) => {
+      modal.remove();
+      resolve(answer);
+    };
+    modal.querySelector("[data-confirm]").addEventListener("click", () => close(true));
+    modal.querySelector("[data-cancel]").addEventListener("click", () => close(false));
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) close(false);
+    });
   });
 }
 
@@ -104,91 +162,126 @@ async function renderAdmin(selectedClientId = "") {
 
   document.querySelectorAll("[data-status-client]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await api(`/api/admin/clients/${button.dataset.statusClient}`, {
-        method: "PATCH",
-        body: { status: button.dataset.nextStatus }
-      });
-      renderAdmin(button.dataset.statusClient);
+      try {
+        await api(`/api/admin/clients/${button.dataset.statusClient}`, {
+          method: "PATCH",
+          body: { status: button.dataset.nextStatus }
+        });
+        await renderAdmin(button.dataset.statusClient);
+        showNotice("Statut client mis à jour.");
+      } catch (error) {
+        showNotice(error.message, "error");
+      }
     });
   });
 
   document.querySelector("[data-sync-google]")?.addEventListener("click", async () => {
     try {
       const result = await api(`/api/sync-google-reviews/${activeClientId}`, { method: "POST" });
-      alert(`${result.imported} nouvel avis non répondu importé sur ${result.totalFound} trouvé.`);
-      renderAdmin(activeClientId);
+      await renderAdmin(activeClientId);
+      showNotice(`${result.imported} nouvel avis non répondu importé sur ${result.totalFound} trouvé.`);
     } catch (error) {
-      alert(error.message);
+      showNotice(error.message, "error");
     }
   });
 
   document.querySelector("#settings-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await api(`/api/admin/clients/${activeClientId}`, {
-      method: "PATCH",
-      body: {
-        syncFromDate: form.get("syncFromDate")
-      }
-    });
-    renderAdmin(activeClientId);
+    try {
+      await api(`/api/admin/clients/${activeClientId}`, {
+        method: "PATCH",
+        body: {
+          syncFromDate: form.get("syncFromDate")
+        }
+      });
+      await renderAdmin(activeClientId);
+      showNotice("Réglages client enregistrés.");
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
   });
 
   document.querySelector("[data-save-email-template]")?.addEventListener("click", async () => {
     const body = document.querySelector("[name='emailBody']").value;
-    await api(`/api/admin/clients/${activeClientId}`, {
-      method: "PATCH",
-      body: { emailTemplate: body }
-    });
-    alert("Ce message devient le nouvel email type du client.");
-    renderAdmin(activeClientId);
+    try {
+      await api(`/api/admin/clients/${activeClientId}`, {
+        method: "PATCH",
+        body: { emailTemplate: body }
+      });
+      await renderAdmin(activeClientId);
+      showNotice("Ce message devient le nouvel email type du client.");
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
   });
 
   document.querySelector("[data-send-email]")?.addEventListener("click", async () => {
     const subject = document.querySelector("[name='emailSubject']").value;
     const body = document.querySelector("[name='emailBody']").value;
-    const result = await api(`/api/admin/send-email/${activeClientId}`, {
-      method: "POST",
-      body: { subject, body }
-    });
-    if (result.email.status === "sent") {
-      alert("Email envoyé au client.");
-    } else if (result.email.status === "failed") {
-      alert(`L'envoi a échoué : ${result.email.error}`);
-    } else {
-      alert("Email simulé et enregistré. Configurez Gmail/SMTP pour l'envoi réel.");
+    try {
+      const result = await api(`/api/admin/send-email/${activeClientId}`, {
+        method: "POST",
+        body: { subject, body }
+      });
+      if (result.email.status === "sent") {
+        showNotice("Email envoyé au client.");
+      } else if (result.email.status === "failed") {
+        showNotice(`L'envoi a échoué : ${result.email.error}`, "error");
+      } else {
+        showNotice("Email simulé et enregistré. Configurez Gmail/SMTP pour l'envoi réel.", "warning");
+      }
+    } catch (error) {
+      showNotice(error.message, "error");
     }
   });
 
   document.querySelector("#policy-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await api(`/api/admin/clients/${activeClientId}`, {
-      method: "PATCH",
-      body: { replyPolicy: form.get("replyPolicy") }
-    });
-    renderAdmin(activeClientId);
+    try {
+      await api(`/api/admin/clients/${activeClientId}`, {
+        method: "PATCH",
+        body: { replyPolicy: form.get("replyPolicy") }
+      });
+      await renderAdmin(activeClientId);
+      showNotice("Prompt personnalisé enregistré.");
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
   });
 
   document.querySelector("#client-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const result = await api("/api/admin/clients", {
-      method: "POST",
-      body: Object.fromEntries(form.entries())
-    });
-    renderAdmin(result.client.id);
+    try {
+      const result = await api("/api/admin/clients", {
+        method: "POST",
+        body: Object.fromEntries(form.entries())
+      });
+      await renderAdmin(result.client.id);
+      showNotice("Client créé.");
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
   });
 
   document.querySelector("#review-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    await api("/api/admin/reviews", {
-      method: "POST",
-      body: { ...Object.fromEntries(form.entries()), clientId: activeClientId }
-    });
-    renderAdmin(activeClientId);
+    try {
+      await api("/api/admin/reviews", {
+        method: "POST",
+        body: { ...Object.fromEntries(form.entries()), clientId: activeClientId }
+      });
+      await renderAdmin(activeClientId);
+      showNotice("Avis de test ajouté.");
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
   });
+
+  wireReviewButtons(() => renderAdmin(activeClientId));
 }
 
 function clientRow(client, selectedClientId) {
@@ -196,14 +289,16 @@ function clientRow(client, selectedClientId) {
   const label = client.status === "active" ? "Suspendre" : "Réactiver";
   return `
     <div class="client-row">
-      <button class="secondary" data-client="${client.id}">
-        ${client.businessName} ${client.id === selectedClientId ? "✓" : ""}
+      <button class="client-select ${client.id === selectedClientId ? "selected" : ""}" data-client="${client.id}">
+        <span class="client-name">${client.businessName}</span>
+        <span class="muted">${client.email}</span>
       </button>
-      <span class="status ${client.status}">${client.status}</span>
-      <div class="muted">${client.email}</div>
-      <button class="${client.status === "active" ? "danger" : ""}" data-status-client="${client.id}" data-next-status="${nextStatus}">
-        ${label}
-      </button>
+      <div class="client-row-actions">
+        <span class="status ${client.status}">${statusLabel(client.status)}</span>
+        <button class="${client.status === "active" ? "danger" : ""}" data-status-client="${client.id}" data-next-status="${nextStatus}">
+          ${label}
+        </button>
+      </div>
     </div>
   `;
 }
@@ -297,8 +392,8 @@ function adminClientPanel(client, reviews, googleStatus) {
 
 function adminGoogleLabel(status) {
   if (!status.configured) return "Google n'est pas encore configuré dans Vercel.";
-  if (!status.connected) return "Le client n'a pas encore connecté son compte Google.";
-  if (!status.googleLocationId) return "Compte Google connecté, établissement pas encore choisi.";
+  if (!status.connected) return "Google : le client n'a pas encore connecté son compte.";
+  if (!status.googleLocationId) return "Google : compte connecté, établissement pas encore choisi.";
   return `Google connecté${status.connectedEmail ? ` : ${status.connectedEmail}` : ""}.`;
 }
 
@@ -356,17 +451,17 @@ async function renderClient() {
         method: "PATCH",
         body: { googleLocationId: form.get("googleLocationId") || "" }
       });
-      alert("Établissement Google enregistré.");
-      renderClient();
+      await renderClient();
+      showNotice("Établissement Google enregistré.");
     } catch (error) {
-      alert(error.message);
+      showNotice(error.message, "error");
     }
   });
   document.querySelector("#client-password-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     if (form.get("newPassword") !== form.get("confirmPassword")) {
-      alert("Les deux nouveaux mots de passe ne correspondent pas.");
+      showNotice("Les deux nouveaux mots de passe ne correspondent pas.", "error");
       return;
     }
     try {
@@ -378,9 +473,9 @@ async function renderClient() {
         }
       });
       event.currentTarget.reset();
-      alert("Mot de passe modifié.");
+      showNotice("Mot de passe modifié.");
     } catch (error) {
-      alert(error.message);
+      showNotice(error.message, "error");
     }
   });
   wireReviewButtons(renderClient);
@@ -467,13 +562,14 @@ function reviewCard(review, mode = "client") {
   const showSave = mode === "admin";
   const showIgnore = mode === "admin";
   return `
-    <article class="review" data-review-id="${review.id}">
+    <article class="review" data-review-id="${review.id}" data-review-source="${review.source || "manual"}">
       <div class="review-head">
         <div>
           <h3>${review.author}</h3>
-          <span class="stars">${"★".repeat(review.rating)}${"☆".repeat(5 - review.rating)}</span>
+          <span class="stars" aria-label="Note ${review.rating} sur 5">${"★".repeat(review.rating)}${"☆".repeat(5 - review.rating)}</span>
+          <span class="muted rating-text">${review.rating}/5</span>
         </div>
-        <span class="status ${review.status}">${review.status}</span>
+        <span class="status ${review.status}">${statusLabel(review.status)}</span>
       </div>
       <p>${review.text}</p>
       <label>Réponse proposée
@@ -497,21 +593,33 @@ function wireReviewButtons(afterSave) {
         method: "PATCH",
         body: { suggestedReply: textarea.value }
       });
-      afterSave();
+      await afterSave();
+      showNotice("Réponse enregistrée.");
     });
     card.querySelector("[data-publish]")?.addEventListener("click", async () => {
+      const isGoogleReview = card.dataset.reviewSource === "google-sync";
+      const confirmed = await confirmAction({
+        title: isGoogleReview ? "Publier sur Google ?" : "Valider cette publication ?",
+        message: isGoogleReview
+          ? "Cette réponse sera envoyée sur la fiche Google de l'établissement. Relisez bien le message avant de confirmer."
+          : "Cet avis de test sera marqué comme publié dans l'outil.",
+        confirmLabel: "Publier"
+      });
+      if (!confirmed) return;
       await api(`/api/reviews/${reviewId}`, {
         method: "PATCH",
         body: { suggestedReply: textarea.value, status: "published" }
       });
-      afterSave();
+      await afterSave();
+      showNotice(isGoogleReview ? "Réponse publiée sur Google." : "Avis marqué comme publié.");
     });
     card.querySelector("[data-ignore]")?.addEventListener("click", async () => {
       await api(`/api/reviews/${reviewId}`, {
         method: "PATCH",
         body: { status: "ignored" }
       });
-      afterSave();
+      await afterSave();
+      showNotice("Avis ignoré.");
     });
   });
 }

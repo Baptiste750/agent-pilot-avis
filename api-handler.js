@@ -531,12 +531,22 @@ export async function handleApi(req, res) {
 
     if (req.method === "POST") {
       const body = await readBody(req);
+      const email = String(body.email || "").trim().toLowerCase();
+      if (!email) {
+        return json(res, 400, { error: "Email client obligatoire." });
+      }
+      if (db.clients.some((item) => item.email.toLowerCase() === email)) {
+        return json(res, 400, { error: "Un client utilise déjà cet email." });
+      }
+      if (String(body.password || "").length < 8) {
+        return json(res, 400, { error: "Le mot de passe temporaire doit contenir au moins 8 caractères." });
+      }
       const client = {
         id: `client_${randomBytes(8).toString("hex")}`,
         businessName: body.businessName || "Nouveau commerce",
         contactName: body.contactName || "",
-        email: body.email,
-        passwordHash: hashPassword(body.password || randomBytes(8).toString("hex")),
+        email,
+        passwordHash: hashPassword(body.password),
         status: "active",
         googleLocationId: body.googleLocationId || "",
         syncFromDate: body.syncFromDate || new Date().toISOString().slice(0, 10),
@@ -562,6 +572,21 @@ export async function handleApi(req, res) {
     const client = db.clients.find((item) => item.id === clientId);
     if (!client) return json(res, 404, { error: "Client introuvable." });
     if (body.status) client.status = body.status;
+    if (body.email !== undefined) {
+      const email = String(body.email || "").trim().toLowerCase();
+      if (!email) return json(res, 400, { error: "Email client obligatoire." });
+      const emailAlreadyUsed = db.clients.some((item) => item.id !== client.id && item.email.toLowerCase() === email);
+      if (emailAlreadyUsed) return json(res, 400, { error: "Un autre client utilise déjà cet email." });
+      client.email = email;
+    }
+    if (body.password !== undefined && String(body.password || "").trim()) {
+      const password = String(body.password || "");
+      if (password.length < 8) {
+        return json(res, 400, { error: "Le nouveau mot de passe doit contenir au moins 8 caractères." });
+      }
+      client.passwordHash = hashPassword(password);
+      db.sessions = db.sessions.filter((item) => item.userId !== client.id);
+    }
     if (body.googleLocationId !== undefined) client.googleLocationId = body.googleLocationId;
     if (body.syncFromDate !== undefined) client.syncFromDate = body.syncFromDate;
     if (body.replyPolicy !== undefined) client.replyPolicy = body.replyPolicy;

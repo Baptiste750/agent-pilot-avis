@@ -143,7 +143,7 @@ async function renderAdmin(selectedClientId = "") {
           <label>Commerce <input name="businessName" required /></label>
           <label>Contact <input name="contactName" /></label>
           <label>Email <input name="email" type="email" required /></label>
-          <label>Mot de passe temporaire <input name="password" required /></label>
+          <label>Mot de passe temporaire <input name="password" minlength="8" autocomplete="new-password" required /></label>
           <label>Synchroniser les avis à partir du
             <input name="syncFromDate" type="date" required value="${new Date().toISOString().slice(0, 10)}" />
           </label>
@@ -197,6 +197,26 @@ async function renderAdmin(selectedClientId = "") {
       });
       await renderAdmin(activeClientId);
       showNotice("Réglages client enregistrés.");
+    } catch (error) {
+      showNotice(error.message, "error");
+    }
+  });
+
+  document.querySelector("#access-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") || "").trim();
+    const body = {
+      email: form.get("email")
+    };
+    if (password) body.password = password;
+    try {
+      await api(`/api/admin/clients/${activeClientId}`, {
+        method: "PATCH",
+        body
+      });
+      await renderAdmin(activeClientId);
+      showNotice(password ? "Identifiant et mot de passe client mis à jour." : "Identifiant client mis à jour.");
     } catch (error) {
       showNotice(error.message, "error");
     }
@@ -333,6 +353,19 @@ function adminClientPanel(client, reviews, googleStatus) {
           <input name="syncFromDate" type="date" value="${client.syncFromDate || ""}" required />
         </label>
         <button type="submit">Enregistrer les réglages</button>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>Accès client</h2>
+      <p class="muted">L'identifiant sert à la connexion du client et à l'envoi des emails de relance. Le mot de passe actuel n'est jamais affiché : vous pouvez seulement en définir un nouveau.</p>
+      <form id="access-form">
+        <label>Identifiant / email de connexion
+          <input name="email" type="email" value="${client.email || ""}" required />
+        </label>
+        <label>Nouveau mot de passe temporaire
+          <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Laisser vide pour ne pas changer" />
+        </label>
+        <button type="submit">Mettre à jour les accès</button>
       </form>
     </div>
     <div class="panel">

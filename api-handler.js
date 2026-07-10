@@ -133,8 +133,11 @@ function canAccessClient(session, clientId) {
 }
 
 async function fetchUnansweredGoogleReviews(db, client) {
-  const googleLocation = parseGoogleLocationId(client.googleLocationId || "");
-  if (isGoogleConfigured() && googleLocation) {
+  if (isGoogleConfigured()) {
+    const googleLocation = await resolveGoogleLocationForReviews(db, client);
+    if (!googleLocation) {
+      throw new Error("La fiche Google du client n'est pas sélectionnée ou doit être resélectionnée.");
+    }
     return fetchRealGoogleReviews(db, client, googleLocation);
   }
 
@@ -159,6 +162,10 @@ function parseGoogleLocationId(value) {
   const match = String(value || "").match(/accounts\/([^/]+)\/locations\/([^/]+)/);
   if (!match) return null;
   return { accountId: match[1], locationId: match[2], name: `accounts/${match[1]}/locations/${match[2]}` };
+}
+
+function googleLocationIdFromName(name) {
+  return String(name || "").split("/").filter(Boolean).at(-1) || "";
 }
 
 function starRatingToNumber(starRating) {
@@ -230,6 +237,12 @@ async function fetchGoogleEmail(accessToken) {
   }
 }
 
+function fullGoogleLocationName(accountName, locationName) {
+  if (parseGoogleLocationId(locationName)) return locationName;
+  if (!accountName || !locationName) return locationName || "";
+  return `${accountName}/${locationName}`;
+}
+
 async function listGoogleLocations(db, clientId) {
   const accountsData = await googleRequest(db, clientId, "https://mybusinessaccountmanagement.googleapis.com/v1/accounts");
   const accounts = accountsData.accounts || [];
@@ -243,8 +256,9 @@ async function listGoogleLocations(db, clientId) {
       `https://mybusinessbusinessinformation.googleapis.com/v1/${account.name}/locations?readMask=name,title,storefrontAddress`
     );
     for (const location of data.locations || []) {
+      const name = fullGoogleLocationName(account.name, location.name);
       locations.push({
-        name: location.name,
+        name,
         title: location.title || location.name,
         accountName: account.accountName || account.name,
         address: formatGoogleAddress(location.storefrontAddress)
@@ -253,6 +267,21 @@ async function listGoogleLocations(db, clientId) {
   }
 
   return locations.sort((a, b) => a.title.localeCompare(b.title, "fr"));
+}
+
+async function resolveGoogleLocationForReviews(db, client) {
+  const parsed = parseGoogleLocationId(client.googleLocationId || "");
+  if (parsed) return parsed;
+
+  const storedLocationId = googleLocationIdFromName(client.googleLocationId);
+  if (!storedLocationId) return null;
+
+  const locations = await listGoogleLocations(db, client.id);
+  const match = locations.find((location) => googleLocationIdFromName(location.name) === storedLocationId);
+  if (!match) return null;
+
+  client.googleLocationId = match.name;
+  return parseGoogleLocationId(match.name);
 }
 
 function formatGoogleAddress(address) {

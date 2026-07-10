@@ -179,7 +179,13 @@ async function renderAdmin(selectedClientId = "") {
     try {
       const result = await api(`/api/sync-google-reviews/${activeClientId}`, { method: "POST" });
       await renderAdmin(activeClientId);
-      showNotice(`${result.imported} nouvel avis non répondu importé sur ${result.totalFound} trouvé.`);
+      if (result.totalFound === 0) {
+        showNotice("Google ne renvoie aucun nouvel avis non répondu pour cette fiche et cette date de début.", "warning");
+      } else if (result.imported === 0) {
+        showNotice(`${result.totalFound} avis non répondu trouvé, mais déjà présent dans l'outil.`, "warning");
+      } else {
+        showNotice(`${result.imported} nouvel avis non répondu importé sur ${result.totalFound} trouvé.`);
+      }
     } catch (error) {
       showNotice(error.message, "error");
     }

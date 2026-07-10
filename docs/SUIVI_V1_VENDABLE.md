@@ -44,18 +44,18 @@ Acces client reel :
 
 But : verifier que le coeur du produit fonctionne avec une vraie fiche Google.
 
-- [ ] Creer un client test cote admin.
-- [ ] Se connecter avec le compte client test.
-- [ ] Connecter le vrai compte Google qui gere une fiche.
-- [ ] Verifier que les etablissements Google remontent bien.
-- [ ] Selectionner le bon etablissement.
-- [ ] Synchroniser les avis depuis l'admin.
-- [ ] Verifier que seuls les avis non repondus et recents remontent.
-- [ ] Verifier que l'IA propose bien des reponses.
-- [ ] Modifier une reponse cote client.
-- [ ] Publier une reponse.
-- [ ] Verifier que la reponse apparait bien sur Google.
-- [ ] Noter les erreurs ou blocages rencontres.
+- [x] Creer un client test cote admin.
+- [x] Se connecter avec le compte client test.
+- [x] Connecter le vrai compte Google qui gere une fiche.
+- [x] Verifier que les etablissements Google remontent bien.
+- [x] Selectionner le bon etablissement.
+- [x] Synchroniser les avis depuis l'admin.
+- [x] Verifier que seuls les avis non repondus et recents remontent.
+- [x] Verifier que l'IA propose bien des reponses.
+- [x] Modifier une reponse cote client.
+- [x] Publier une reponse.
+- [x] Verifier que la reponse apparait bien sur Google.
+- [x] Noter les erreurs ou blocages rencontres.
 
 Resultat attendu : on sait si la chaine Google complete fonctionne vraiment.
 
@@ -63,13 +63,13 @@ Resultat attendu : on sait si la chaine Google complete fonctionne vraiment.
 
 But : rendre le parcours Google plus robuste avant de le proposer a un commerce.
 
-- [ ] Clarifier les messages si Google n'est pas connecte.
-- [ ] Clarifier les messages si aucun etablissement n'est trouve.
+- [x] Clarifier les messages si Google n'est pas connecte.
+- [x] Clarifier les messages si aucun etablissement n'est trouve.
 - [ ] Clarifier les messages si la fiche choisie n'a pas d'avis accessible.
-- [ ] Ajouter un etat clair quand la synchronisation est en cours.
-- [ ] Ajouter un message clair quand aucun nouvel avis n'est trouve.
-- [ ] Verifier que la date de debut de synchronisation evite l'import massif d'anciens avis.
-- [ ] Verifier qu'un meme avis Google n'est pas importe deux fois.
+- [x] Ajouter un etat clair quand la synchronisation est en cours.
+- [x] Ajouter un message clair quand aucun nouvel avis n'est trouve.
+- [x] Verifier que la date de debut de synchronisation evite l'import massif d'anciens avis.
+- [x] Verifier qu'un meme avis Google n'est pas importe deux fois.
 - [ ] Verifier le comportement si le client reconnecte Google.
 
 Resultat attendu : le client comprend ce qui se passe, meme quand Google ne renvoie rien ou renvoie une erreur.
@@ -128,10 +128,10 @@ Resultat attendu : tu peux gerer plusieurs commerces sans te perdre.
 But : envoyer un email propre qui ramene le client vers son espace.
 
 - [ ] Verifier si l'envoi email reel fonctionne.
-- [ ] Rediger un email type professionnel.
-- [ ] Ajouter le lien direct vers l'espace client.
-- [ ] Ajouter le resume : nombre d'avis, moyenne, periode.
-- [ ] Ajouter un historique des emails envoyes.
+- [x] Rediger un email type professionnel.
+- [x] Ajouter le lien direct vers l'espace client.
+- [x] Ajouter le resume : nombre d'avis, moyenne, periode.
+- [x] Ajouter un historique des emails envoyes.
 - [ ] Prevoir un message different si aucun avis n'est en attente.
 - [ ] Verifier que le client recoit bien l'email.
 

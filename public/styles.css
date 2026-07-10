@@ -528,6 +528,20 @@ button.danger:hover {
   margin-top: 14px;
 }
 
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline-item {
+  border-left: 3px solid #111;
+  padding: 2px 0 2px 14px;
+}
+
+.timeline-item p {
+  margin-bottom: 6px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

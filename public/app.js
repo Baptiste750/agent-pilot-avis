@@ -124,9 +124,10 @@ function renderLogin() {
 async function renderAdmin(selectedClientId = "") {
   const { clients } = await api("/api/admin/clients");
   const activeClientId = selectedClientId || clients[0]?.id || "";
-  const [{ reviews }, googleStatus] = await Promise.all([
+  const [{ reviews }, googleStatus, emailLogResult] = await Promise.all([
     activeClientId ? api(`/api/reviews?clientId=${activeClientId}`) : Promise.resolve({ reviews: [] }),
-    activeClientId ? api(`/api/google/status?clientId=${activeClientId}`).catch(() => ({ configured: false, connected: false })) : Promise.resolve({ configured: false, connected: false })
+    activeClientId ? api(`/api/google/status?clientId=${activeClientId}`).catch(() => ({ configured: false, connected: false })) : Promise.resolve({ configured: false, connected: false }),
+    activeClientId ? api(`/api/admin/email-logs/${activeClientId}`).catch(() => ({ emailLogs: [], smtpConfigured: false })) : Promise.resolve({ emailLogs: [], smtpConfigured: false })
   ]);
 
   layout(`
@@ -151,7 +152,7 @@ async function renderAdmin(selectedClientId = "") {
         </form>
       </aside>
       <section>
-        ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews, googleStatus) : "<p>Aucun client.</p>"}
+        ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews, googleStatus, emailLogResult) : "<p>Aucun client.</p>"}
       </section>
     </div>
   `);
@@ -176,7 +177,11 @@ async function renderAdmin(selectedClientId = "") {
   });
 
   document.querySelector("[data-sync-google]")?.addEventListener("click", async () => {
+    const button = document.querySelector("[data-sync-google]");
     try {
+      button.disabled = true;
+      button.textContent = "Synchronisation en cours...";
+      showNotice("Synchronisation Google en cours. Cela peut prendre quelques secondes.", "warning");
       const result = await api(`/api/sync-google-reviews/${activeClientId}`, { method: "POST" });
       await renderAdmin(activeClientId);
       if (result.totalFound === 0) {
@@ -188,6 +193,10 @@ async function renderAdmin(selectedClientId = "") {
       }
     } catch (error) {
       showNotice(error.message, "error");
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Synchroniser les avis Google non répondus";
+      }
     }
   });
 
@@ -243,13 +252,17 @@ async function renderAdmin(selectedClientId = "") {
   });
 
   document.querySelector("[data-send-email]")?.addEventListener("click", async () => {
+    const button = document.querySelector("[data-send-email]");
     const subject = document.querySelector("[name='emailSubject']").value;
     const body = document.querySelector("[name='emailBody']").value;
     try {
+      button.disabled = true;
+      button.textContent = "Envoi en cours...";
       const result = await api(`/api/admin/send-email/${activeClientId}`, {
         method: "POST",
         body: { subject, body }
       });
+      await renderAdmin(activeClientId);
       if (result.email.status === "sent") {
         showNotice("Email envoyé au client.");
       } else if (result.email.status === "failed") {
@@ -259,6 +272,10 @@ async function renderAdmin(selectedClientId = "") {
       }
     } catch (error) {
       showNotice(error.message, "error");
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Envoyer l'email";
+      }
     }
   });
 
@@ -314,7 +331,7 @@ function clientRow(client, selectedClientId) {
   `;
 }
 
-function adminClientPanel(client, reviews, googleStatus) {
+function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emailLogs: [], smtpConfigured: false }) {
   const pendingReviews = reviews.filter((review) => review.status === "pending");
   const historyReviews = reviews.filter((review) => review.status !== "pending");
   const pending = pendingReviews.length;
@@ -362,6 +379,7 @@ function adminClientPanel(client, reviews, googleStatus) {
     <div class="panel">
       <h2>Email à envoyer</h2>
       <p class="muted">Ce message est généré depuis l'email type du client. Vous pouvez l'ajuster ponctuellement avant l'envoi sans modifier le modèle permanent.</p>
+      <p class="muted">${emailLogResult.smtpConfigured ? "Envoi réel configuré." : "Envoi réel non configuré : l'email sera simulé et historisé."}</p>
       <label>Objet
         <input name="emailSubject" value="${emailSubject}" />
       </label>
@@ -372,6 +390,11 @@ function adminClientPanel(client, reviews, googleStatus) {
         <button data-send-email>Envoyer l'email</button>
         <button class="secondary" data-save-email-template>En faire le nouvel email type</button>
       </div>
+    </div>
+    <div class="panel">
+      <h2>Historique des emails</h2>
+      <p class="muted">Les derniers emails envoyés ou simulés pour ce client.</p>
+      ${emailHistory(emailLogResult.emailLogs || [])}
     </div>
     <div class="panel">
       <h2>Prompt personnalisé du client</h2>
@@ -395,11 +418,53 @@ function adminClientPanel(client, reviews, googleStatus) {
   `;
 }
 
+function emailHistory(emailLogs) {
+  if (!emailLogs.length) return "<p class='muted'>Aucun email historisé pour le moment.</p>";
+  return `
+    <div class="timeline">
+      ${emailLogs
+        .map(
+          (emailLog) => `
+            <div class="timeline-item">
+              <div>
+                <strong>${emailStatusLabel(emailLog.status)}</strong>
+                <p class="muted">${formatDateTime(emailLog.createdAt)} - ${emailLog.to}</p>
+                <p>${emailLog.subject}</p>
+                ${emailLog.error ? `<p class="error">${emailLog.error}</p>` : ""}
+              </div>
+            </div>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function emailStatusLabel(status) {
+  return {
+    sent: "Envoyé",
+    failed: "Échec",
+    simulated: "Simulé",
+    pending: "En attente"
+  }[status] || status || "Inconnu";
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 function adminGoogleLabel(status) {
-  if (!status.configured) return "Google n'est pas encore configuré dans Vercel.";
-  if (!status.connected) return "Google : le client n'a pas encore connecté son compte.";
-  if (!status.googleLocationId) return "Google : compte connecté, établissement pas encore choisi.";
-  return `Google connecté${status.connectedEmail ? ` : ${status.connectedEmail}` : ""}.`;
+  if (!status.configured) return "Google non configuré dans Vercel : la connexion client n'est pas encore disponible.";
+  if (!status.connected) return "Google non connecté : le client doit connecter le compte qui gère sa fiche.";
+  if (!status.googleLocationId) return "Google connecté, mais aucun établissement n'est encore sélectionné.";
+  return `Google prêt${status.connectedEmail ? ` : ${status.connectedEmail}` : ""}.`;
 }
 
 function renderEmailPreview(client, pendingReviews, averageRating, totalReviews) {

@@ -683,6 +683,17 @@ export async function handleApi(req, res) {
     return;
   }
 
+  if (url.pathname.startsWith("/api/admin/email-logs/") && req.method === "GET") {
+    if (session.role !== "admin") return json(res, 403, { error: "Accès refusé." });
+    const clientId = url.pathname.split("/").at(-1);
+    const emailLogs = db.emailLogs
+      .filter((emailLog) => emailLog.clientId === clientId)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 10);
+    json(res, 200, { emailLogs, smtpConfigured: isSmtpConfigured() });
+    return;
+  }
+
   if (url.pathname.startsWith("/api/admin/send-email/") && req.method === "POST") {
     if (session.role !== "admin") return json(res, 403, { error: "Accès refusé." });
     const clientId = url.pathname.split("/").at(-1);

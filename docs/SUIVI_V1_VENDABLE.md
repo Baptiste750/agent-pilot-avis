@@ -1,8 +1,8 @@
-# Suivi V1 vendable - Agent Pilot Avis
+# Suivi V1 vendable - Notori
 
 Objectif : transformer l'application actuelle en version beta exploitable avec quelques commerces reels, avant de travailler la vente et la partie commerciale.
 
-Lien application : [ouvrir Agent Pilot Avis](https://agent-pilot-avis.vercel.app/)
+Lien application : [ouvrir Notori](https://agent-pilot-avis.vercel.app/)
 
 ## Acces utiles
 
@@ -39,6 +39,7 @@ Acces client reel :
 - [x] Validation/modification des reponses par le client.
 - [x] Historique des avis traites.
 - [x] Premiere direction artistique plus premium.
+- [x] Envoi email reel via Gmail SMTP.
 
 ## Chapitre 1 - Test reel Google de bout en bout
 
@@ -110,6 +111,7 @@ Resultat attendu : un restaurateur ou commercant comprend l'outil en moins d'une
 But : te permettre de gerer plusieurs clients sans confusion.
 
 - [x] Retirer la zone de test local de l'interface admin.
+- [x] Transformer l'admin en cockpit Notori plus lisible.
 - [ ] Ameliorer la liste des clients.
 - [ ] Ajouter une vue claire du statut Google par client.
 - [ ] Ajouter une vue claire du nombre d'avis en attente par client.
@@ -127,13 +129,13 @@ Resultat attendu : tu peux gerer plusieurs commerces sans te perdre.
 
 But : envoyer un email propre qui ramene le client vers son espace.
 
-- [ ] Verifier si l'envoi email reel fonctionne.
+- [x] Verifier si l'envoi email reel fonctionne.
 - [x] Rediger un email type professionnel.
 - [x] Ajouter le lien direct vers l'espace client.
 - [x] Ajouter le resume : nombre d'avis, moyenne, periode.
 - [x] Ajouter un historique des emails envoyes.
 - [ ] Prevoir un message different si aucun avis n'est en attente.
-- [ ] Verifier que le client recoit bien l'email.
+- [x] Verifier que le client recoit bien l'email.
 
 Resultat attendu : le client recoit un email clair et clique pour valider ses reponses.
 
@@ -186,9 +188,9 @@ Resultat attendu : obtenir des preuves terrain avant de demarcher plus largement
 
 La prochaine action est :
 
-1. Faire le test reel Google de bout en bout.
-2. Noter precisement ce qui marche et ce qui bloque.
-3. Corriger les blocages du Chapitre 1 avant de passer au Chapitre 2.
+1. Fluidifier le cockpit administrateur Notori.
+2. Fluidifier l'espace client.
+3. Renforcer les derniers points de securite et d'exploitation.
 
 ## Notes de test
 

@@ -14,7 +14,7 @@ const DEFAULT_REPLY_POLICY =
   "Ton professionnel, chaleureux et naturel. Répondre en français. Remercier le client, rester court, ne jamais être agressif. Pour un avis négatif, reconnaître le problème, s'excuser si nécessaire et proposer un échange direct.";
 
 const DEFAULT_EMAIL_TEMPLATE =
-  "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nAgent Pilot Avis";
+  "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori";
 
 export function isSupabaseConfigured() {
   return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);

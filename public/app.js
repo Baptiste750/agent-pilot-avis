@@ -24,7 +24,7 @@ function layout(content, subtitle = "Réponses aux avis Google assistées par IA
     <div class="shell">
       <header class="topbar">
         <div class="brand">
-          <strong>Agent Pilot Avis</strong>
+          <strong>Notori</strong>
           <span>${subtitle}</span>
         </div>
         <button class="secondary" data-action="logout">Se déconnecter</button>
@@ -91,8 +91,8 @@ function confirmAction({ title, message, confirmLabel = "Confirmer" }) {
 function renderLogin() {
   app.innerHTML = `
     <section class="login">
-      <h1>Agent Pilot Avis</h1>
-      <p class="muted">Connectez-vous pour gérer les réponses aux avis Google.</p>
+      <h1>Notori</h1>
+      <p class="muted">Connectez-vous pour piloter vos réponses aux avis Google.</p>
       <form id="login-form">
         <label>Email
           <input name="email" type="email" autocomplete="email" required />
@@ -131,15 +131,20 @@ async function renderAdmin(selectedClientId = "") {
   ]);
 
   layout(`
-    <h1>Espace admin</h1>
-    <p class="muted">Créez les comptes clients, synchronisez les avis Google non répondus et gardez la main sur les accès.</p>
+    <div class="page-head">
+      <div>
+        <h1>Notori</h1>
+        <p class="muted">Pilotez les clients, les avis à traiter et les relances email depuis un seul écran.</p>
+      </div>
+      <span class="status active">${clients.length} client${clients.length > 1 ? "s" : ""}</span>
+    </div>
     <div class="grid two">
       <aside class="panel">
-        <h2>Clients</h2>
+        <h2>Commerces</h2>
         <div id="clients-list">
           ${clients.map((client) => clientRow(client, activeClientId)).join("")}
         </div>
-        <h3>Ajouter un client</h3>
+        <h3>Nouveau client</h3>
         <form id="client-form">
           <label>Commerce <input name="businessName" required /></label>
           <label>Contact <input name="contactName" /></label>
@@ -340,41 +345,44 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
     : "0.0";
   const emailSubject = `Vos réponses aux avis Google sont prêtes - ${client.businessName}`;
   const emailBody = renderEmailPreview(client, pending, average, reviews.length);
+  const lastEmail = (emailLogResult.emailLogs || [])[0];
   return `
-    <div class="cards">
+    <div class="cards compact-cards">
       <div class="metric"><span class="muted">Avis</span><strong>${reviews.length}</strong></div>
       <div class="metric"><span class="muted">À traiter</span><strong>${pending}</strong></div>
       <div class="metric"><span class="muted">Moyenne</span><strong>${average}/5</strong></div>
     </div>
-    <div class="panel">
-      <h2>${client.businessName}</h2>
-      <p class="muted">Les avis synchronisés tiennent compte de la date de début configurée pour éviter d'importer tout l'historique Google.</p>
-      <p class="muted">${adminGoogleLabel(googleStatus)}</p>
-      <div class="actions">
-        <button data-sync-google>Synchroniser les avis Google non répondus</button>
+    <div class="panel cockpit-panel">
+      <div class="cockpit-main">
+        <div>
+          <span class="eyebrow">Client actif</span>
+          <h2>${client.businessName}</h2>
+          <p class="muted">${adminGoogleLabel(googleStatus)}</p>
+        </div>
+        <span class="status ${client.status}">${statusLabel(client.status)}</span>
       </div>
-    </div>
-    <div class="panel">
-      <h2>Réglages client</h2>
-      <form id="settings-form">
-        <label>Date de début de synchronisation
-          <input name="syncFromDate" type="date" value="${client.syncFromDate || ""}" required />
-        </label>
-        <button type="submit">Enregistrer les réglages</button>
-      </form>
-    </div>
-    <div class="panel">
-      <h2>Accès client</h2>
-      <p class="muted">L'identifiant sert à la connexion du client et à l'envoi des emails de relance. Le mot de passe actuel n'est jamais affiché : vous pouvez seulement en définir un nouveau.</p>
-      <form id="access-form">
-        <label>Identifiant / email de connexion
-          <input name="email" type="email" value="${client.email || ""}" required />
-        </label>
-        <label>Nouveau mot de passe temporaire
-          <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Laisser vide pour ne pas changer" />
-        </label>
-        <button type="submit">Mettre à jour les accès</button>
-      </form>
+      <div class="status-grid">
+        <div class="status-line">
+          <span>Google</span>
+          <strong>${googleStatusLabel(googleStatus)}</strong>
+        </div>
+        <div class="status-line">
+          <span>Email</span>
+          <strong>${emailLogResult.smtpConfigured ? "envoi réel actif" : "simulation"}</strong>
+        </div>
+        <div class="status-line">
+          <span>Dernier email</span>
+          <strong>${lastEmail ? `${emailStatusLabel(lastEmail.status)} le ${formatDateTime(lastEmail.createdAt)}` : "aucun"}</strong>
+        </div>
+        <div class="status-line">
+          <span>Synchronisation depuis</span>
+          <strong>${client.syncFromDate || "non définie"}</strong>
+        </div>
+      </div>
+      <div class="actions action-row">
+        <button data-sync-google>Synchroniser les avis</button>
+        <button data-send-email>Envoyer l'email</button>
+      </div>
     </div>
     <div class="panel">
       <h2>Email à envoyer</h2>
@@ -387,35 +395,63 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
         <textarea name="emailBody">${emailBody}</textarea>
       </label>
       <div class="actions">
-        <button data-send-email>Envoyer l'email</button>
         <button class="secondary" data-save-email-template>En faire le nouvel email type</button>
       </div>
     </div>
     <div class="panel">
-      <h2>Historique des emails</h2>
+      <h2>Avis à traiter</h2>
+      <p class="muted">Avis Google non répondus importés par la synchronisation. Les réponses proposées apparaissent côté client.</p>
+      ${pendingReviews.map((review) => reviewCard(review, "admin")).join("") || "<p class='muted'>Aucun avis à traiter.</p>"}
+    </div>
+    <details class="panel section-details">
+      <summary>Réglages client</summary>
+      <form id="settings-form">
+        <label>Date de début de synchronisation
+          <input name="syncFromDate" type="date" value="${client.syncFromDate || ""}" required />
+        </label>
+        <button type="submit">Enregistrer les réglages</button>
+      </form>
+    </details>
+    <details class="panel section-details">
+      <summary>Accès client</summary>
+      <p class="muted">L'identifiant sert à la connexion du client et à l'envoi des emails de relance. Le mot de passe actuel n'est jamais affiché : vous pouvez seulement en définir un nouveau.</p>
+      <form id="access-form">
+        <label>Identifiant / email de connexion
+          <input name="email" type="email" value="${client.email || ""}" required />
+        </label>
+        <label>Nouveau mot de passe temporaire
+          <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Laisser vide pour ne pas changer" />
+        </label>
+        <button type="submit">Mettre à jour les accès</button>
+      </form>
+    </details>
+    <details class="panel section-details">
+      <summary>Historique des emails</summary>
       <p class="muted">Les derniers emails envoyés ou simulés pour ce client.</p>
       ${emailHistory(emailLogResult.emailLogs || [])}
-    </div>
-    <div class="panel">
-      <h2>Prompt personnalisé du client</h2>
+    </details>
+    <details class="panel section-details">
+      <summary>Prompt personnalisé du client</summary>
       <form id="policy-form">
         <label>Consignes utilisées par l'IA pour générer les réponses Google
           <textarea name="replyPolicy">${client.replyPolicy || ""}</textarea>
         </label>
         <button type="submit">Enregistrer le prompt</button>
       </form>
-    </div>
-    <div class="panel">
-      <h2>Avis synchronisés à traiter</h2>
-      <p class="muted">Ce sont les avis Google non répondus importés par la synchronisation. Les réponses proposées apparaîtront côté client.</p>
-      ${pendingReviews.map((review) => reviewCard(review, "admin")).join("") || "<p class='muted'>Aucun avis à traiter.</p>"}
-    </div>
-    <div class="panel">
-      <h2>Historique des avis répondus</h2>
+    </details>
+    <details class="panel section-details">
+      <summary>Historique des avis répondus</summary>
       <p class="muted">Utile pour comprendre les corrections du client et affiner le ton des prochaines réponses.</p>
       ${historyReviews.map((review) => reviewCard(review, "history")).join("") || "<p class='muted'>Aucun avis répondu pour le moment.</p>"}
-    </div>
+    </details>
   `;
+}
+
+function googleStatusLabel(status) {
+  if (!status.configured) return "non configuré";
+  if (!status.connected) return "à connecter";
+  if (!status.googleLocationId) return "fiche à choisir";
+  return "prêt";
 }
 
 function emailHistory(emailLogs) {
@@ -470,7 +506,7 @@ function adminGoogleLabel(status) {
 function renderEmailPreview(client, pendingReviews, averageRating, totalReviews) {
   const template =
     client.emailTemplate ||
-    "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nAgent Pilot Avis";
+    "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori";
   return template
     .replaceAll("{{contactName}}", client.contactName || client.businessName)
     .replaceAll("{{businessName}}", client.businessName)

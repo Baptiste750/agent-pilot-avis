@@ -292,21 +292,6 @@ async function renderAdmin(selectedClientId = "") {
     }
   });
 
-  document.querySelector("#review-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    try {
-      await api("/api/admin/reviews", {
-        method: "POST",
-        body: { ...Object.fromEntries(form.entries()), clientId: activeClientId }
-      });
-      await renderAdmin(activeClientId);
-      showNotice("Avis de test ajouté.");
-    } catch (error) {
-      showNotice(error.message, "error");
-    }
-  });
-
   wireReviewButtons(() => renderAdmin(activeClientId));
 }
 
@@ -395,25 +380,6 @@ function adminClientPanel(client, reviews, googleStatus) {
           <textarea name="replyPolicy">${client.replyPolicy || ""}</textarea>
         </label>
         <button type="submit">Enregistrer le prompt</button>
-      </form>
-    </div>
-    <div class="panel">
-      <h2>Test local</h2>
-      <p class="muted">Cette zone sert uniquement à tester l'interface avant la connexion réelle à Google Business Profile.</p>
-      <form id="review-form">
-        <label>Auteur <input name="author" placeholder="Nom affiché sur Google" /></label>
-        <label>Note
-          <select name="rating">
-            <option value="5">5/5</option>
-            <option value="4">4/5</option>
-            <option value="3">3/5</option>
-            <option value="2">2/5</option>
-            <option value="1">1/5</option>
-          </select>
-        </label>
-        <label>Avis Google <textarea name="text" required></textarea></label>
-        <label>Réponse proposée <textarea name="suggestedReply"></textarea></label>
-        <button type="submit">Ajouter un avis de test</button>
       </form>
     </div>
     <div class="panel">

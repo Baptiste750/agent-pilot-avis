@@ -34,6 +34,7 @@ Acces client reel :
 - [x] Espace client separe.
 - [x] Connexion Google cote client.
 - [x] Selection d'un etablissement Google.
+- [x] Synchronisation reelle des avis Google validee.
 - [x] Generation de reponses avec OpenAI.
 - [x] Validation/modification des reponses par le client.
 - [x] Historique des avis traites.
@@ -108,6 +109,7 @@ Resultat attendu : un restaurateur ou commercant comprend l'outil en moins d'une
 
 But : te permettre de gerer plusieurs clients sans confusion.
 
+- [x] Retirer la zone de test local de l'interface admin.
 - [ ] Ameliorer la liste des clients.
 - [ ] Ajouter une vue claire du statut Google par client.
 - [ ] Ajouter une vue claire du nombre d'avis en attente par client.

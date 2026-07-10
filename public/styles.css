@@ -434,43 +434,101 @@ textarea {
   border-color: #111;
 }
 
-.cockpit-main {
+.client-hero {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--soft-line);
 }
 
-.status-grid {
+.client-hero h2 {
+  margin-bottom: 6px;
+  font-size: 30px;
+}
+
+.client-hero p {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.client-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 18px;
 }
 
-.status-line {
+.overview-card {
   min-width: 0;
-  padding: 12px;
+  grid-column: span 3;
+  min-height: 122px;
+  padding: 16px;
   border: 1px solid var(--soft-line);
   border-radius: 8px;
   background: #f7f7f4;
 }
 
-.status-line span,
-.status-line strong {
+.overview-card span,
+.overview-card strong,
+.overview-card p {
   display: block;
 }
 
-.status-line span {
+.overview-card span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+  text-transform: uppercase;
 }
 
-.status-line strong {
-  margin-top: 6px;
+.overview-card strong {
+  margin-top: 8px;
   overflow-wrap: anywhere;
-  font-size: 14px;
+  font-size: 18px;
+  line-height: 1.18;
+}
+
+.overview-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.google-card {
+  grid-column: span 5;
+  background: #f1f1ec;
+}
+
+.access-card {
+  grid-column: span 4;
+}
+
+.sync-card {
+  grid-column: span 3;
+}
+
+.focus-card {
+  grid-column: span 4;
+  background: #111;
+  color: #fff;
+}
+
+.focus-card span,
+.focus-card p {
+  color: #d6d6d0;
+}
+
+.focus-card strong {
+  font-size: 42px;
+  line-height: 0.95;
+}
+
+.email-card {
+  grid-column: span 8;
 }
 
 button,
@@ -665,15 +723,24 @@ button.danger:hover {
 
   .two,
   .cards,
-  .status-grid {
+  .client-overview {
     grid-template-columns: 1fr;
   }
 
   .page-head,
-  .cockpit-main,
+  .client-hero,
   .section-header,
   .danger-zone {
     display: grid;
+  }
+
+  .overview-card,
+  .google-card,
+  .access-card,
+  .sync-card,
+  .focus-card,
+  .email-card {
+    grid-column: auto;
   }
 
   .settings-grid {

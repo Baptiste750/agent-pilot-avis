@@ -268,7 +268,7 @@ async function renderAdmin(selectedClientId = "") {
       showNotice(error.message, "error");
       if (button) {
         button.disabled = false;
-        button.textContent = "Synchroniser les avis Google non répondus";
+        button.textContent = "Synchroniser";
       }
     }
   });
@@ -388,13 +388,14 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
   const nextStatus = client.status === "active" ? "suspended" : "active";
   const statusActionLabel = client.status === "active" ? "Suspendre" : "Réactiver";
   const emailAlreadySent = emailedClientIds.has(client.id);
+  const googleConnectedText = googleStatus.connectedEmail || "Compte Google non connecté";
   return `
     <div class="panel cockpit-panel">
-      <div class="cockpit-main">
+      <div class="client-hero">
         <div>
           <span class="eyebrow">Fiche client</span>
           <h2>${client.businessName}</h2>
-          <p class="muted">${client.contactName || "Contact non renseigné"}</p>
+          <p>${client.contactName || "Contact non renseigné"}</p>
         </div>
         <div class="actions">
           <span class="status ${client.status}">${statusLabel(client.status)}</span>
@@ -403,38 +404,31 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
           </button>
         </div>
       </div>
-      <div class="status-grid">
-        <div class="status-line">
-          <span>Compte Google</span>
+      <div class="client-overview">
+        <div class="overview-card google-card">
+          <span>Google</span>
           <strong>${googleStatusLabel(googleStatus)}</strong>
+          <p>${googleConnectedText}</p>
         </div>
-        <div class="status-line">
-          <span>Adresse Google</span>
-          <strong>${googleStatus.connectedEmail || "non connecté"}</strong>
-        </div>
-        <div class="status-line">
-          <span>Identifiant client</span>
+        <div class="overview-card access-card">
+          <span>Accès client</span>
           <strong>${client.email}</strong>
+          <p>Identifiant de connexion et adresse de relance.</p>
         </div>
-        <div class="status-line">
-          <span>Synchronisation depuis</span>
-          <strong>${client.syncFromDate || "non définie"}</strong>
+        <div class="overview-card sync-card">
+          <span>Début de synchronisation</span>
+          <strong>${formatLongDate(client.syncFromDate)}</strong>
+          <p>Les avis plus anciens sont ignorés.</p>
         </div>
-        <div class="status-line">
-          <span>Avis synchronisés</span>
-          <strong>${reviews.length}</strong>
-        </div>
-        <div class="status-line">
+        <div class="overview-card focus-card">
           <span>Avis à traiter</span>
           <strong>${pending}</strong>
+          <p>${reviews.length} avis synchronisés · moyenne ${average}/5</p>
         </div>
-        <div class="status-line">
-          <span>Moyenne importée</span>
-          <strong>${average}/5</strong>
-        </div>
-        <div class="status-line">
+        <div class="overview-card email-card">
           <span>Dernier email</span>
-          <strong>${lastEmail ? `${emailStatusLabel(lastEmail.status)} le ${formatDateTime(lastEmail.createdAt)}` : "aucun"}</strong>
+          <strong>${lastEmail ? emailStatusLabel(lastEmail.status) : "Aucun envoi"}</strong>
+          <p>${lastEmail ? formatLongDateTime(lastEmail.createdAt) : "Aucune relance n'a encore été envoyée."}</p>
         </div>
       </div>
     </div>
@@ -444,7 +438,7 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
           <h2>Opérations</h2>
           <p class="muted">Synchronisez les nouveaux avis, relisez les réponses proposées, puis envoyez le lien de validation au client.</p>
         </div>
-        <button data-sync-google>Synchroniser les avis</button>
+        <button data-sync-google>Synchroniser</button>
       </div>
       <div class="operation-block">
         <h3>Nouveaux avis à traiter</h3>
@@ -580,6 +574,32 @@ function formatDateTime(value) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit"
+  });
+}
+
+function formatLongDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  const longDate = date.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  });
+  const time = date.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  return `${longDate} à ${time}`;
+}
+
+function formatLongDate(value) {
+  if (!value) return "non définie";
+  return new Date(`${value}T00:00:00`).toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
   });
 }
 

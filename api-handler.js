@@ -1,6 +1,6 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { connect as tlsConnect } from "node:tls";
-import { ensureDb, loadDb, saveDb, isSupabaseConfigured } from "./storage.js";
+import { ensureDb, loadDb, saveDb, isSupabaseConfigured, deleteClientCascade } from "./storage.js";
 
 const PORT = Number(process.env.PORT || 4173);
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@agentpilotavis.local";
@@ -17,6 +17,9 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `${APP_BASE_URL.replace(/\/$/, "")}/api/google/callback`;
 const GOOGLE_SCOPE = "https://www.googleapis.com/auth/business.manage https://www.googleapis.com/auth/userinfo.email";
+const DEFAULT_EMAIL_SUBJECT_TEMPLATE = "Vos réponses aux avis Google sont prêtes - {{businessName}}";
+const DEFAULT_EMAIL_BODY_TEMPLATE =
+  "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori";
 
 function getMockGoogleReviews() {
   return [
@@ -343,15 +346,46 @@ function getClientSummary(db, clientId) {
   };
 }
 
-function renderEmailTemplate(client, summary) {
+function parseEmailTemplateSetting(client) {
+  const rawTemplate = client.emailTemplate || "";
+  if (rawTemplate.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawTemplate);
+      return {
+        subject: parsed.subject || DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+        body: parsed.body || DEFAULT_EMAIL_BODY_TEMPLATE
+      };
+    } catch {
+      return {
+        subject: DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+        body: rawTemplate || DEFAULT_EMAIL_BODY_TEMPLATE
+      };
+    }
+  }
+
+  return {
+    subject: DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+    body: rawTemplate || DEFAULT_EMAIL_BODY_TEMPLATE
+  };
+}
+
+function renderEmailText(template, client, summary) {
   const loginUrl = APP_BASE_URL;
-  return (client.emailTemplate || "")
+  return (template || "")
     .replaceAll("{{contactName}}", client.contactName || client.businessName)
     .replaceAll("{{businessName}}", client.businessName)
     .replaceAll("{{pendingReviews}}", String(summary.pendingReviews))
     .replaceAll("{{totalReviews}}", String(summary.totalReviews))
     .replaceAll("{{averageRating}}", String(summary.averageRating))
     .replaceAll("{{loginUrl}}", loginUrl);
+}
+
+function renderEmailSubject(client, summary) {
+  return renderEmailText(parseEmailTemplateSetting(client).subject, client, summary);
+}
+
+function renderEmailTemplate(client, summary) {
+  return renderEmailText(parseEmailTemplateSetting(client).body, client, summary);
 }
 
 export async function handleApi(req, res) {
@@ -584,7 +618,10 @@ export async function handleApi(req, res) {
           "Ton professionnel, chaleureux et naturel. Répondre en français. Remercier le client, rester court, ne jamais être agressif. Pour un avis négatif, reconnaître le problème, s'excuser si nécessaire et proposer un échange direct.",
         emailTemplate:
           body.emailTemplate ||
-          "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori",
+          JSON.stringify({
+            subject: DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+            body: DEFAULT_EMAIL_BODY_TEMPLATE
+          }),
         createdAt: new Date().toISOString()
       };
       db.clients.push(client);
@@ -592,6 +629,16 @@ export async function handleApi(req, res) {
       json(res, 201, { client: publicClient(client) });
       return;
     }
+  }
+
+  if (url.pathname.startsWith("/api/admin/clients/") && req.method === "DELETE") {
+    if (session.role !== "admin") return json(res, 403, { error: "Accès refusé." });
+    const clientId = url.pathname.split("/").at(-1);
+    const client = db.clients.find((item) => item.id === clientId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    await deleteClientCascade(clientId);
+    json(res, 200, { ok: true });
+    return;
   }
 
   if (url.pathname.startsWith("/api/admin/clients/") && req.method === "PATCH") {
@@ -676,7 +723,7 @@ export async function handleApi(req, res) {
     if (!client) return json(res, 404, { error: "Client introuvable." });
     const summary = getClientSummary(db, clientId);
     json(res, 200, {
-      subject: `Vos réponses aux avis Google sont prêtes - ${client.businessName}`,
+      subject: renderEmailSubject(client, summary),
       body: renderEmailTemplate(client, summary),
       summary
     });
@@ -706,7 +753,7 @@ export async function handleApi(req, res) {
       id: `email_${randomBytes(8).toString("hex")}`,
       clientId,
       to: client.email,
-      subject: body.subject || `Vos réponses aux avis Google sont prêtes - ${client.businessName}`,
+      subject: body.subject || renderEmailSubject(client, summary),
       body: body.body || renderEmailTemplate(client, summary),
       status: "pending",
       createdAt: new Date().toISOString()

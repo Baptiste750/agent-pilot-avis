@@ -8,6 +8,20 @@ const STATUS_LABELS = {
   ignored: "ignoré"
 };
 
+const DEFAULT_EMAIL_SUBJECT_TEMPLATE = "Vos réponses aux avis Google sont prêtes - {{businessName}}";
+const DEFAULT_EMAIL_BODY_TEMPLATE =
+  "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori";
+
+function loadEmailedClientIds() {
+  try {
+    return JSON.parse(window.localStorage.getItem("notori:emailed-client-ids") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+const emailedClientIds = new Set(loadEmailedClientIds());
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "content-type": "application/json" },
@@ -41,6 +55,57 @@ function layout(content, subtitle = "Réponses aux avis Google assistées par IA
 
 function statusLabel(status) {
   return STATUS_LABELS[status] || status || "";
+}
+
+function persistEmailedClients() {
+  window.localStorage.setItem("notori:emailed-client-ids", JSON.stringify([...emailedClientIds]));
+}
+
+function rememberEmailSent(clientId) {
+  emailedClientIds.add(clientId);
+  persistEmailedClients();
+}
+
+function forgetEmailSent(clientId) {
+  emailedClientIds.delete(clientId);
+  persistEmailedClients();
+}
+
+function parseEmailTemplate(client) {
+  const rawTemplate = client.emailTemplate || "";
+  if (rawTemplate.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawTemplate);
+      return {
+        subject: parsed.subject || DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+        body: parsed.body || DEFAULT_EMAIL_BODY_TEMPLATE
+      };
+    } catch {
+      return {
+        subject: DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+        body: rawTemplate || DEFAULT_EMAIL_BODY_TEMPLATE
+      };
+    }
+  }
+
+  return {
+    subject: DEFAULT_EMAIL_SUBJECT_TEMPLATE,
+    body: rawTemplate || DEFAULT_EMAIL_BODY_TEMPLATE
+  };
+}
+
+function serializeEmailTemplate(subject, body) {
+  return JSON.stringify({ subject, body });
+}
+
+function renderEmailText(template, client, pendingReviews, averageRating, totalReviews) {
+  return (template || "")
+    .replaceAll("{{contactName}}", client.contactName || client.businessName)
+    .replaceAll("{{businessName}}", client.businessName)
+    .replaceAll("{{pendingReviews}}", String(pendingReviews))
+    .replaceAll("{{totalReviews}}", String(totalReviews))
+    .replaceAll("{{averageRating}}", String(averageRating))
+    .replaceAll("{{loginUrl}}", window.location.origin);
 }
 
 function showNotice(message, type = "success") {
@@ -144,17 +209,19 @@ async function renderAdmin(selectedClientId = "") {
         <div id="clients-list">
           ${clients.map((client) => clientRow(client, activeClientId)).join("")}
         </div>
-        <h3>Nouveau client</h3>
-        <form id="client-form">
-          <label>Commerce <input name="businessName" required /></label>
-          <label>Contact <input name="contactName" /></label>
-          <label>Email <input name="email" type="email" required /></label>
-          <label>Mot de passe temporaire <input name="password" minlength="8" autocomplete="new-password" required /></label>
-          <label>Synchroniser les avis à partir du
-            <input name="syncFromDate" type="date" required value="${new Date().toISOString().slice(0, 10)}" />
-          </label>
-          <button type="submit">Créer le client</button>
-        </form>
+        <details class="compact-settings new-client-drawer">
+          <summary>Nouveau client</summary>
+          <form id="client-form">
+            <label>Commerce <input name="businessName" required /></label>
+            <label>Contact <input name="contactName" /></label>
+            <label>Email <input name="email" type="email" required /></label>
+            <label>Mot de passe temporaire <input name="password" minlength="8" autocomplete="new-password" required /></label>
+            <label>Synchroniser les avis à partir du
+              <input name="syncFromDate" type="date" required value="${new Date().toISOString().slice(0, 10)}" />
+            </label>
+            <button type="submit">Créer le client</button>
+          </form>
+        </details>
       </aside>
       <section>
         ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews, googleStatus, emailLogResult) : "<p>Aucun client.</p>"}
@@ -188,6 +255,7 @@ async function renderAdmin(selectedClientId = "") {
       button.textContent = "Synchronisation en cours...";
       showNotice("Synchronisation Google en cours. Cela peut prendre quelques secondes.", "warning");
       const result = await api(`/api/sync-google-reviews/${activeClientId}`, { method: "POST" });
+      if (result.imported > 0) forgetEmailSent(activeClientId);
       await renderAdmin(activeClientId);
       if (result.totalFound === 0) {
         showNotice("Google ne renvoie aucun nouvel avis non répondu pour cette fiche et cette date de début.", "warning");
@@ -208,26 +276,12 @@ async function renderAdmin(selectedClientId = "") {
   document.querySelector("#settings-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    try {
-      await api(`/api/admin/clients/${activeClientId}`, {
-        method: "PATCH",
-        body: {
-          syncFromDate: form.get("syncFromDate")
-        }
-      });
-      await renderAdmin(activeClientId);
-      showNotice("Réglages client enregistrés.");
-    } catch (error) {
-      showNotice(error.message, "error");
-    }
-  });
-
-  document.querySelector("#access-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
     const password = String(form.get("password") || "").trim();
     const body = {
-      email: form.get("email")
+      email: form.get("email"),
+      syncFromDate: form.get("syncFromDate"),
+      replyPolicy: form.get("replyPolicy"),
+      emailTemplate: serializeEmailTemplate(form.get("emailSubjectTemplate"), form.get("emailBodyTemplate"))
     };
     if (password) body.password = password;
     try {
@@ -236,21 +290,7 @@ async function renderAdmin(selectedClientId = "") {
         body
       });
       await renderAdmin(activeClientId);
-      showNotice(password ? "Identifiant et mot de passe client mis à jour." : "Identifiant client mis à jour.");
-    } catch (error) {
-      showNotice(error.message, "error");
-    }
-  });
-
-  document.querySelector("[data-save-email-template]")?.addEventListener("click", async () => {
-    const body = document.querySelector("[name='emailBody']").value;
-    try {
-      await api(`/api/admin/clients/${activeClientId}`, {
-        method: "PATCH",
-        body: { emailTemplate: body }
-      });
-      await renderAdmin(activeClientId);
-      showNotice("Ce message devient le nouvel email type du client.");
+      showNotice("Réglages client enregistrés.");
     } catch (error) {
       showNotice(error.message, "error");
     }
@@ -267,6 +307,7 @@ async function renderAdmin(selectedClientId = "") {
         method: "POST",
         body: { subject, body }
       });
+      rememberEmailSent(activeClientId);
       await renderAdmin(activeClientId);
       if (result.email.status === "sent") {
         showNotice("Email envoyé au client.");
@@ -284,16 +325,18 @@ async function renderAdmin(selectedClientId = "") {
     }
   });
 
-  document.querySelector("#policy-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  document.querySelector("[data-delete-client]")?.addEventListener("click", async () => {
+    const confirmed = await confirmAction({
+      title: "Supprimer ce client ?",
+      message: "Cette action supprimera définitivement le client, ses avis, son historique email, ses sessions et sa connexion Google. Elle ne peut pas être annulée.",
+      confirmLabel: "Supprimer"
+    });
+    if (!confirmed) return;
     try {
-      await api(`/api/admin/clients/${activeClientId}`, {
-        method: "PATCH",
-        body: { replyPolicy: form.get("replyPolicy") }
-      });
-      await renderAdmin(activeClientId);
-      showNotice("Prompt personnalisé enregistré.");
+      await api(`/api/admin/clients/${activeClientId}`, { method: "DELETE" });
+      forgetEmailSent(activeClientId);
+      await renderAdmin();
+      showNotice("Client supprimé définitivement.");
     } catch (error) {
       showNotice(error.message, "error");
     }
@@ -318,8 +361,6 @@ async function renderAdmin(selectedClientId = "") {
 }
 
 function clientRow(client, selectedClientId) {
-  const nextStatus = client.status === "active" ? "suspended" : "active";
-  const label = client.status === "active" ? "Suspendre" : "Réactiver";
   return `
     <div class="client-row">
       <button class="client-select ${client.id === selectedClientId ? "selected" : ""}" data-client="${client.id}">
@@ -328,9 +369,6 @@ function clientRow(client, selectedClientId) {
       </button>
       <div class="client-row-actions">
         <span class="status ${client.status}">${statusLabel(client.status)}</span>
-        <button class="${client.status === "active" ? "danger" : ""}" data-status-client="${client.id}" data-next-status="${nextStatus}">
-          ${label}
-        </button>
       </div>
     </div>
   `;
@@ -343,101 +381,150 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
   const average = reviews.length
     ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)
     : "0.0";
-  const emailSubject = `Vos réponses aux avis Google sont prêtes - ${client.businessName}`;
-  const emailBody = renderEmailPreview(client, pending, average, reviews.length);
+  const emailTemplate = parseEmailTemplate(client);
+  const emailSubject = renderEmailText(emailTemplate.subject, client, pending, average, reviews.length);
+  const emailBody = renderEmailText(emailTemplate.body, client, pending, average, reviews.length);
   const lastEmail = (emailLogResult.emailLogs || [])[0];
+  const nextStatus = client.status === "active" ? "suspended" : "active";
+  const statusActionLabel = client.status === "active" ? "Suspendre" : "Réactiver";
+  const emailAlreadySent = emailedClientIds.has(client.id);
   return `
-    <div class="cards compact-cards">
-      <div class="metric"><span class="muted">Avis</span><strong>${reviews.length}</strong></div>
-      <div class="metric"><span class="muted">À traiter</span><strong>${pending}</strong></div>
-      <div class="metric"><span class="muted">Moyenne</span><strong>${average}/5</strong></div>
-    </div>
     <div class="panel cockpit-panel">
       <div class="cockpit-main">
         <div>
-          <span class="eyebrow">Client actif</span>
+          <span class="eyebrow">Fiche client</span>
           <h2>${client.businessName}</h2>
-          <p class="muted">${adminGoogleLabel(googleStatus)}</p>
+          <p class="muted">${client.contactName || "Contact non renseigné"}</p>
         </div>
-        <span class="status ${client.status}">${statusLabel(client.status)}</span>
+        <div class="actions">
+          <span class="status ${client.status}">${statusLabel(client.status)}</span>
+          <button class="${client.status === "active" ? "danger" : "secondary"}" data-status-client="${client.id}" data-next-status="${nextStatus}">
+            ${statusActionLabel}
+          </button>
+        </div>
       </div>
       <div class="status-grid">
         <div class="status-line">
-          <span>Google</span>
+          <span>Compte Google</span>
           <strong>${googleStatusLabel(googleStatus)}</strong>
         </div>
         <div class="status-line">
-          <span>Email</span>
-          <strong>${emailLogResult.smtpConfigured ? "envoi réel actif" : "simulation"}</strong>
+          <span>Adresse Google</span>
+          <strong>${googleStatus.connectedEmail || "non connecté"}</strong>
         </div>
         <div class="status-line">
-          <span>Dernier email</span>
-          <strong>${lastEmail ? `${emailStatusLabel(lastEmail.status)} le ${formatDateTime(lastEmail.createdAt)}` : "aucun"}</strong>
+          <span>Identifiant client</span>
+          <strong>${client.email}</strong>
         </div>
         <div class="status-line">
           <span>Synchronisation depuis</span>
           <strong>${client.syncFromDate || "non définie"}</strong>
         </div>
+        <div class="status-line">
+          <span>Avis synchronisés</span>
+          <strong>${reviews.length}</strong>
+        </div>
+        <div class="status-line">
+          <span>Avis à traiter</span>
+          <strong>${pending}</strong>
+        </div>
+        <div class="status-line">
+          <span>Moyenne importée</span>
+          <strong>${average}/5</strong>
+        </div>
+        <div class="status-line">
+          <span>Dernier email</span>
+          <strong>${lastEmail ? `${emailStatusLabel(lastEmail.status)} le ${formatDateTime(lastEmail.createdAt)}` : "aucun"}</strong>
+        </div>
       </div>
-      <div class="actions action-row">
+    </div>
+    <div class="panel operation-panel">
+      <div class="section-header">
+        <div>
+          <h2>Opérations</h2>
+          <p class="muted">Synchronisez les nouveaux avis, relisez les réponses proposées, puis envoyez le lien de validation au client.</p>
+        </div>
         <button data-sync-google>Synchroniser les avis</button>
-        <button data-send-email>Envoyer l'email</button>
+      </div>
+      <div class="operation-block">
+        <h3>Nouveaux avis à traiter</h3>
+        ${
+          emailAlreadySent
+            ? "<p class='muted empty-state'>Email envoyé pour ce lot. Synchronisez les avis pour afficher les nouveaux avis à préparer.</p>"
+            : pendingReviews.map((review) => reviewCard(review, "admin")).join("") || "<p class='muted empty-state'>Aucun avis à traiter. Synchronisez les avis pour vérifier les nouveautés Google.</p>"
+        }
+      </div>
+      <div class="operation-block">
+        <h3>Email à envoyer</h3>
+        ${
+          emailAlreadySent
+            ? "<p class='muted empty-state'>Le dernier email vient d'être envoyé. Pour éviter un doublon, préparez un nouvel envoi après une nouvelle synchronisation.</p>"
+            : `
+              <p class="muted">Ce message est généré depuis l'email type du client. Vous pouvez l'ajuster ponctuellement avant l'envoi sans modifier le modèle permanent.</p>
+              <label>Objet
+                <input name="emailSubject" value="${emailSubject}" />
+              </label>
+              <label>Message
+                <textarea name="emailBody">${emailBody}</textarea>
+              </label>
+              <div class="actions">
+                <button data-send-email>Envoyer l'email</button>
+              </div>
+            `
+        }
       </div>
     </div>
-    <div class="panel">
-      <h2>Email à envoyer</h2>
-      <p class="muted">Ce message est généré depuis l'email type du client. Vous pouvez l'ajuster ponctuellement avant l'envoi sans modifier le modèle permanent.</p>
-      <p class="muted">${emailLogResult.smtpConfigured ? "Envoi réel configuré." : "Envoi réel non configuré : l'email sera simulé et historisé."}</p>
-      <label>Objet
-        <input name="emailSubject" value="${emailSubject}" />
-      </label>
-      <label>Message
-        <textarea name="emailBody">${emailBody}</textarea>
-      </label>
-      <div class="actions">
-        <button class="secondary" data-save-email-template>En faire le nouvel email type</button>
-      </div>
-    </div>
-    <div class="panel">
-      <h2>Avis à traiter</h2>
-      <p class="muted">Avis Google non répondus importés par la synchronisation. Les réponses proposées apparaissent côté client.</p>
-      ${pendingReviews.map((review) => reviewCard(review, "admin")).join("") || "<p class='muted'>Aucun avis à traiter.</p>"}
-    </div>
-    <details class="panel section-details">
+    <details class="panel section-details settings-panel">
       <summary>Réglages client</summary>
       <form id="settings-form">
-        <label>Date de début de synchronisation
-          <input name="syncFromDate" type="date" value="${client.syncFromDate || ""}" required />
-        </label>
-        <button type="submit">Enregistrer les réglages</button>
+        <div class="settings-grid">
+          <div class="settings-group">
+            <h3>Accès client</h3>
+            <p class="muted">L'identifiant sert à la connexion du client et à l'envoi des emails de relance.</p>
+            <label>Identifiant / email de connexion
+              <input name="email" type="email" value="${client.email || ""}" required />
+            </label>
+            <label>Nouveau mot de passe temporaire
+              <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Laisser vide pour ne pas changer" />
+            </label>
+            <label>Date de début de synchronisation
+              <input name="syncFromDate" type="date" value="${client.syncFromDate || ""}" required />
+            </label>
+          </div>
+          <div class="settings-group">
+            <h3>Prompt IA</h3>
+            <p class="muted">Consignes utilisées pour générer les réponses Google du client.</p>
+            <label>Ton de réponse
+              <textarea name="replyPolicy">${client.replyPolicy || ""}</textarea>
+            </label>
+          </div>
+          <div class="settings-group wide">
+            <h3>Email type</h3>
+            <p class="muted">Modèle permanent utilisé pour générer l'email à envoyer après synchronisation.</p>
+            <label>Objet type
+              <input name="emailSubjectTemplate" value="${emailTemplate.subject}" />
+            </label>
+            <label>Message type
+              <textarea name="emailBodyTemplate">${emailTemplate.body}</textarea>
+            </label>
+          </div>
+        </div>
+        <div class="actions settings-actions">
+          <button type="submit">Enregistrer les réglages</button>
+        </div>
       </form>
-    </details>
-    <details class="panel section-details">
-      <summary>Accès client</summary>
-      <p class="muted">L'identifiant sert à la connexion du client et à l'envoi des emails de relance. Le mot de passe actuel n'est jamais affiché : vous pouvez seulement en définir un nouveau.</p>
-      <form id="access-form">
-        <label>Identifiant / email de connexion
-          <input name="email" type="email" value="${client.email || ""}" required />
-        </label>
-        <label>Nouveau mot de passe temporaire
-          <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Laisser vide pour ne pas changer" />
-        </label>
-        <button type="submit">Mettre à jour les accès</button>
-      </form>
+      <div class="danger-zone">
+        <div>
+          <h3>Suppression définitive</h3>
+          <p class="muted">Supprime le client, ses avis, ses emails, ses sessions et sa connexion Google.</p>
+        </div>
+        <button class="danger" type="button" data-delete-client>Supprimer le client</button>
+      </div>
     </details>
     <details class="panel section-details">
       <summary>Historique des emails</summary>
       <p class="muted">Les derniers emails envoyés ou simulés pour ce client.</p>
       ${emailHistory(emailLogResult.emailLogs || [])}
-    </details>
-    <details class="panel section-details">
-      <summary>Prompt personnalisé du client</summary>
-      <form id="policy-form">
-        <label>Consignes utilisées par l'IA pour générer les réponses Google
-          <textarea name="replyPolicy">${client.replyPolicy || ""}</textarea>
-        </label>
-        <button type="submit">Enregistrer le prompt</button>
-      </form>
     </details>
     <details class="panel section-details">
       <summary>Historique des avis répondus</summary>
@@ -494,26 +581,6 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit"
   });
-}
-
-function adminGoogleLabel(status) {
-  if (!status.configured) return "Google non configuré dans Vercel : la connexion client n'est pas encore disponible.";
-  if (!status.connected) return "Google non connecté : le client doit connecter le compte qui gère sa fiche.";
-  if (!status.googleLocationId) return "Google connecté, mais aucun établissement n'est encore sélectionné.";
-  return `Google prêt${status.connectedEmail ? ` : ${status.connectedEmail}` : ""}.`;
-}
-
-function renderEmailPreview(client, pendingReviews, averageRating, totalReviews) {
-  const template =
-    client.emailTemplate ||
-    "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori";
-  return template
-    .replaceAll("{{contactName}}", client.contactName || client.businessName)
-    .replaceAll("{{businessName}}", client.businessName)
-    .replaceAll("{{pendingReviews}}", String(pendingReviews))
-    .replaceAll("{{totalReviews}}", String(totalReviews))
-    .replaceAll("{{averageRating}}", String(averageRating))
-    .replaceAll("{{loginUrl}}", window.location.origin);
 }
 
 async function renderClient() {
@@ -664,9 +731,8 @@ function clientPasswordPanel(client) {
 }
 
 function reviewCard(review, mode = "client") {
-  const showActions = mode !== "history";
+  const showPublish = mode === "client";
   const showSave = mode === "admin";
-  const showIgnore = mode === "admin";
   return `
     <article class="review" data-review-id="${review.id}" data-review-source="${review.source || "manual"}">
       <div class="review-head">
@@ -682,9 +748,8 @@ function reviewCard(review, mode = "client") {
         <textarea data-reply>${review.suggestedReply}</textarea>
       </label>
       <div class="actions">
-        ${showActions ? `<button data-publish ${review.status !== "pending" ? "disabled" : ""}>Publier</button>` : ""}
+        ${showPublish ? `<button data-publish ${review.status !== "pending" ? "disabled" : ""}>Publier</button>` : ""}
         ${showSave ? `<button class="secondary" data-save ${review.status !== "pending" ? "disabled" : ""}>Enregistrer</button>` : ""}
-        ${showIgnore ? `<button class="secondary" data-ignore ${review.status !== "pending" ? "disabled" : ""}>Ignorer</button>` : ""}
       </div>
     </article>
   `;

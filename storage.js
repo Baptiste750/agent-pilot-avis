@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes, scryptSync } from "node:crypto";
@@ -41,6 +41,22 @@ export async function saveDb(db) {
   await saveLocalDb(db);
 }
 
+export async function deleteClientCascade(clientId) {
+  if (isSupabaseConfigured()) {
+    await supabaseDelete("sessions", `user_id=eq.${encodeURIComponent(clientId)}`);
+    await supabaseDelete("clients", `id=eq.${encodeURIComponent(clientId)}`);
+    return;
+  }
+
+  const db = await loadLocalDb();
+  db.clients = db.clients.filter((client) => client.id !== clientId);
+  db.reviews = db.reviews.filter((review) => review.clientId !== clientId);
+  db.sessions = db.sessions.filter((session) => session.userId !== clientId);
+  db.emailLogs = db.emailLogs.filter((emailLog) => emailLog.clientId !== clientId);
+  db.googleTokens = db.googleTokens.filter((token) => token.clientId !== clientId && token.id !== clientId);
+  await saveLocalDb(db);
+}
+
 async function ensureLocalDb() {
   await mkdir(DATA_DIR, { recursive: true });
   if (existsSync(DB_FILE)) return;
@@ -56,7 +72,9 @@ async function loadLocalDb() {
 
 async function saveLocalDb(db) {
   await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(DB_FILE, JSON.stringify(normalizeDb(db), null, 2));
+  const temporaryFile = `${DB_FILE}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(temporaryFile, JSON.stringify(normalizeDb(db), null, 2));
+  await rename(temporaryFile, DB_FILE);
 }
 
 async function ensureSupabaseSeed() {

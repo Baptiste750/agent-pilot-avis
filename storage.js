@@ -88,11 +88,21 @@ async function saveSupabaseDb(db) {
   const normalized = normalizeDb(db);
   await Promise.all([
     upsertRows("clients", normalized.clients.map(clientToRow)),
-    upsertRows("reviews", normalized.reviews.map(reviewToRow)),
+    upsertRows("reviews", uniqueReviewRows(normalized.reviews.map(reviewToRow))),
     upsertRows("email_logs", normalized.emailLogs.map(emailLogToRow)),
     upsertRows("google_tokens", normalized.googleTokens.map(googleTokenToRow)),
     syncSessionRows(normalized.sessions)
   ]);
+}
+
+function uniqueReviewRows(rows) {
+  const seenGoogleReviewIds = new Set();
+  return rows.filter((row) => {
+    if (!row.google_review_id) return true;
+    if (seenGoogleReviewIds.has(row.google_review_id)) return false;
+    seenGoogleReviewIds.add(row.google_review_id);
+    return true;
+  });
 }
 
 async function syncSessionRows(sessions) {

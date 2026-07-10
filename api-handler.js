@@ -637,28 +637,35 @@ export async function handleApi(req, res) {
       return json(res, 400, { error: "Le client doit d'abord connecter son compte Google." });
     }
 
-    const googleReviews = await fetchUnansweredGoogleReviews(db, client);
-    let imported = 0;
-    for (const googleReview of googleReviews) {
-      const alreadyImported = db.reviews.some((review) => review.googleReviewId === googleReview.googleReviewId);
-      if (alreadyImported) continue;
-      db.reviews.push({
-        id: `review_${randomBytes(8).toString("hex")}`,
-        googleReviewId: googleReview.googleReviewId,
-        clientId: client.id,
-        author: googleReview.author || "Client Google",
-        rating: Number(googleReview.rating || 5),
-        text: googleReview.text || "",
-        suggestedReply: await generateSuggestedReply(client, googleReview),
-        status: "pending",
-        publishedReply: "",
-        source: "google-sync",
-        createdAt: googleReview.createdAt || new Date().toISOString()
-      });
-      imported += 1;
+    try {
+      const googleReviews = await fetchUnansweredGoogleReviews(db, client);
+      let imported = 0;
+      const existingGoogleReviewIds = new Set(db.reviews.map((review) => review.googleReviewId).filter(Boolean));
+      for (const googleReview of googleReviews) {
+        const alreadyImported = existingGoogleReviewIds.has(googleReview.googleReviewId);
+        if (alreadyImported) continue;
+        existingGoogleReviewIds.add(googleReview.googleReviewId);
+        db.reviews.push({
+          id: `review_${randomBytes(8).toString("hex")}`,
+          googleReviewId: googleReview.googleReviewId,
+          clientId: client.id,
+          author: googleReview.author || "Client Google",
+          rating: Number(googleReview.rating || 5),
+          text: googleReview.text || "",
+          suggestedReply: await generateSuggestedReply(client, googleReview),
+          status: "pending",
+          publishedReply: "",
+          source: "google-sync",
+          createdAt: googleReview.createdAt || new Date().toISOString()
+        });
+        imported += 1;
+      }
+      await saveDb(db);
+      json(res, 200, { imported, totalFound: googleReviews.length });
+    } catch (error) {
+      console.error(error);
+      json(res, 500, { error: error.message || "Erreur pendant la synchronisation Google." });
     }
-    await saveDb(db);
-    json(res, 200, { imported, totalFound: googleReviews.length });
     return;
   }
 

@@ -44,8 +44,11 @@ function layout(content, subtitle = "Réponses aux avis Google assistées par IA
     <div class="shell">
       <header class="topbar">
         <div class="brand">
-          <strong>Notori</strong>
-          <span>${subtitle}</span>
+          <img class="brand-mark" src="/assets/notori-mark.png" alt="" aria-hidden="true" />
+          <div>
+            <strong>Notori</strong>
+            <span>${subtitle}</span>
+          </div>
         </div>
         <button class="secondary" data-action="logout">Se déconnecter</button>
       </header>
@@ -175,6 +178,7 @@ function confirmAction({ title, message, confirmLabel = "Confirmer" }) {
 function renderLogin() {
   app.innerHTML = `
     <section class="login">
+      <img class="login-mark" src="/assets/notori-mark.png" alt="" aria-hidden="true" />
       <h1>Notori</h1>
       <p class="muted">Connectez-vous pour piloter vos réponses aux avis Google.</p>
       <form id="login-form">
@@ -224,7 +228,7 @@ async function renderAdmin(selectedClientId = "") {
     </div>
     <div class="grid two">
       <aside class="panel">
-        <h2>Commerces</h2>
+        <h2 class="branded-title">Commerces</h2>
         <div id="clients-list">
           ${clients.map((client) => clientRow(client, activeClientId)).join("")}
         </div>
@@ -454,7 +458,7 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
     <div class="panel operation-panel">
       <div class="section-header">
         <div>
-          <h2>Opérations</h2>
+          <h2 class="branded-title">Opérations</h2>
           <p class="muted">Synchronisez les nouveaux avis, relisez les réponses proposées, puis envoyez le lien de validation au client.</p>
         </div>
         <button data-sync-google>Synchroniser</button>
@@ -488,7 +492,7 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
       </div>
     </div>
     <details class="panel section-details settings-panel">
-      <summary>Réglages client</summary>
+      <summary><span class="summary-title">Réglages client</span></summary>
       <form id="settings-form">
         <div class="settings-grid">
           <div class="settings-group">
@@ -706,7 +710,7 @@ function clientReplyProfilePanel(client, googleStatus) {
       <div class="section-header">
         <div>
           <span class="eyebrow">Profil IA</span>
-          <h2>Créer le style de réponse</h2>
+          <h2 class="branded-title">Créer le style de réponse</h2>
           <p class="muted">Audit des avis, questionnaire de ton, prompt final et exemples de calibration.</p>
         </div>
         <button data-run-profile-audit>${audit ? "Relancer l'audit" : "Auditer les avis"}</button>
@@ -1063,7 +1067,7 @@ function clientGooglePanel(status, locationsResult) {
   if (!status.configured) {
     return `
       <div class="panel">
-        <h2>Compte Google</h2>
+        <h2 class="branded-title">Compte Google</h2>
         <p class="muted">La connexion Google n'est pas encore activée par l'administrateur. Le bouton de connexion apparaîtra ici dès que l'accès Google sera configuré.</p>
       </div>
     `;
@@ -1072,7 +1076,7 @@ function clientGooglePanel(status, locationsResult) {
   if (!status.connected) {
     return `
       <div class="panel">
-        <h2>Compte Google</h2>
+        <h2 class="branded-title">Compte Google</h2>
         <p class="muted">Connectez le compte Google qui gère votre fiche d'établissement.</p>
         <a class="button-link" href="/api/google/start">Connecter mon compte Google</a>
       </div>
@@ -1082,7 +1086,7 @@ function clientGooglePanel(status, locationsResult) {
   const locations = locationsResult.locations || [];
   return `
     <div class="panel">
-      <h2>Compte Google</h2>
+      <h2 class="branded-title">Compte Google</h2>
       <p class="muted">Compte connecté${status.connectedEmail ? ` : ${status.connectedEmail}` : ""}.</p>
       ${locationsResult.error ? `<p class="error">${locationsResult.error}</p>` : ""}
       <form id="client-google-form">
@@ -1112,7 +1116,7 @@ function clientGooglePanel(status, locationsResult) {
 function clientPasswordPanel(client) {
   return `
     <div class="panel">
-      <h2>Accès</h2>
+      <h2 class="branded-title">Accès</h2>
       <label>Identifiant
         <input value="${client.email}" disabled />
       </label>

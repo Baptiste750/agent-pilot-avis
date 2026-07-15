@@ -55,8 +55,22 @@ select {
 
 .brand {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand > div {
+  display: grid;
   gap: 4px;
+}
+
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 8px;
+  background: #fff;
+  object-fit: contain;
 }
 
 .brand strong {
@@ -137,6 +151,17 @@ select {
   animation: page-in 260ms ease-out;
 }
 
+.login-mark {
+  display: block;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  object-fit: contain;
+}
+
 h1,
 h2,
 h3,
@@ -161,6 +186,24 @@ h2 {
 h3 {
   font-size: 16px;
   margin-bottom: 6px;
+}
+
+.branded-title,
+.summary-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.branded-title::before,
+.summary-title::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff url("/assets/notori-mark.png") center / 76% no-repeat;
 }
 
 .muted {
@@ -557,6 +600,23 @@ button:hover,
 .button-link:hover {
   background: var(--brand-dark);
   transform: translateY(-1px);
+}
+
+button[data-run-profile-audit]::before,
+button[data-sync-google]::before,
+button[data-send-email]::before,
+button[data-save-reply-profile]::before,
+button[data-generate-sample-reply]::before {
+  content: "";
+  width: 17px;
+  height: 17px;
+  margin-right: 8px;
+  border-radius: 4px;
+  background: #fff url("/assets/notori-mark.png") center / 82% no-repeat;
+}
+
+button.secondary[data-generate-sample-reply]::before {
+  border: 1px solid var(--line);
 }
 
 button:disabled {

@@ -30,6 +30,7 @@ function getMockGoogleReviews() {
       rating: 5,
       text: "Très bonne adresse, personnel souriant et cuisine généreuse.",
       answered: false,
+      ownerReply: "",
       createdAt: "2026-07-01T09:15:00.000Z"
     },
     {
@@ -39,6 +40,7 @@ function getMockGoogleReviews() {
       rating: 2,
       text: "Déçu par l'attente, nous avons patienté presque 40 minutes avant d'être servis.",
       answered: false,
+      ownerReply: "",
       createdAt: "2026-07-01T19:40:00.000Z"
     },
     {
@@ -48,6 +50,7 @@ function getMockGoogleReviews() {
       rating: 4,
       text: "Bonne expérience dans l'ensemble, les desserts étaient excellents.",
       answered: true,
+      ownerReply: "Bonjour Amina, merci pour votre retour. Nous sommes ravis que vous ayez apprécié votre expérience et nos desserts.",
       createdAt: "2026-06-30T12:20:00.000Z"
     }
   ];
@@ -324,6 +327,60 @@ async function fetchRealGoogleReviews(db, client, googleLocation) {
     }));
 }
 
+async function fetchGoogleReviewsForAudit(db, client, limit = 100) {
+  if (isGoogleConfigured() && client.googleLocationId && getGoogleToken(db, client.id)) {
+    const googleLocation = await resolveGoogleLocationForReviews(db, client);
+    if (!googleLocation) {
+      throw new Error("La fiche Google du client doit être sélectionnée avant de lancer l'audit.");
+    }
+
+    const reviews = [];
+    let pageToken = "";
+    while (reviews.length < limit) {
+      const params = new URLSearchParams({
+        pageSize: "50",
+        orderBy: "updateTime desc"
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+      const data = await googleRequest(
+        db,
+        client.id,
+        `https://mybusiness.googleapis.com/v4/accounts/${googleLocation.accountId}/locations/${googleLocation.locationId}/reviews?${params}`
+      );
+      reviews.push(
+        ...(data.reviews || []).map((review) => ({
+          googleReviewId: review.reviewId || googleReviewIdFromName(review.name),
+          author: review.reviewer?.displayName || "Client Google",
+          rating: starRatingToNumber(review.starRating),
+          text: review.comment || "",
+          answered: Boolean(review.reviewReply?.comment),
+          ownerReply: review.reviewReply?.comment || "",
+          createdAt: review.createTime || review.updateTime || new Date().toISOString()
+        }))
+      );
+      pageToken = data.nextPageToken || "";
+      if (!pageToken || !(data.reviews || []).length) break;
+    }
+    return reviews.slice(0, limit);
+  }
+
+  const storedReviews = db.reviews
+    .filter((review) => review.clientId === client.id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, limit)
+    .map((review) => ({
+      googleReviewId: review.googleReviewId || review.id,
+      author: review.author || "Client Google",
+      rating: Number(review.rating || 5),
+      text: review.text || "",
+      answered: review.status === "published" || Boolean(review.publishedReply),
+      ownerReply: review.publishedReply || "",
+      createdAt: review.createdAt || new Date().toISOString()
+    }));
+
+  return storedReviews.length ? storedReviews : getMockGoogleReviews().slice(0, limit);
+}
+
 async function replyToGoogleReview(db, owner, review, comment) {
   const googleLocation = parseGoogleLocationId(owner.googleLocationId || "");
   if (!googleLocation || !review.googleReviewId) return;
@@ -386,6 +443,308 @@ function renderEmailSubject(client, summary) {
 
 function renderEmailTemplate(client, summary) {
   return renderEmailText(parseEmailTemplateSetting(client).body, client, summary);
+}
+
+function ratingDistribution(reviews) {
+  return [1, 2, 3, 4, 5].reduce((acc, rating) => {
+    acc[rating] = reviews.filter((review) => Number(review.rating) === rating).length;
+    return acc;
+  }, {});
+}
+
+function findThemeMatches(reviews, dictionary) {
+  return Object.entries(dictionary)
+    .map(([theme, words]) => ({
+      theme,
+      count: reviews.filter((review) => words.some((word) => `${review.text} ${review.ownerReply || ""}`.toLowerCase().includes(word))).length
+    }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+}
+
+function fallbackAudit(client, reviews) {
+  const total = reviews.length;
+  const average = total ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / total : 0;
+  const answered = reviews.filter((review) => review.answered || review.ownerReply).length;
+  const positiveThemes = findThemeMatches(reviews, {
+    accueil: ["accueil", "souriant", "sympa", "gentil", "aimable"],
+    service: ["service", "rapide", "efficace", "conseil", "professionnel"],
+    qualité: ["qualité", "excellent", "parfait", "super", "beau", "bon"],
+    choix: ["choix", "rayon", "variété", "stock", "produit"],
+    prix: ["prix", "tarif", "cher", "abordable"]
+  });
+  const negativeThemes = findThemeMatches(
+    reviews.filter((review) => Number(review.rating) <= 3 || /attente|cher|déçu|accueil|caisse|problème|mauvais/i.test(review.text || "")),
+    {
+      attente: ["attente", "attendre", "long", "retard"],
+      accueil: ["accueil", "désagréable", "souriant", "froid", "impoli"],
+      prix: ["prix", "cher", "tarif", "caisse"],
+      service: ["service", "conseil", "erreur", "problème"],
+      disponibilité: ["stock", "disponible", "rupture", "manque"]
+    }
+  );
+  const strengths = positiveThemes.length ? positiveThemes.map((item) => item.theme) : ["qualité de l'expérience client", "satisfaction globale"];
+  const weaknesses = negativeThemes.length ? negativeThemes.map((item) => item.theme) : ["points d'amélioration peu récurrents"];
+  return {
+    source: isGoogleConfigured() ? "google" : "local",
+    reviewCount: total,
+    averageRating: Number(average.toFixed(1)),
+    responseRate: total ? Math.round((answered / total) * 100) : 0,
+    distribution: ratingDistribution(reviews),
+    strengths,
+    weaknesses,
+    ownerReplyStyle: answered
+      ? "Les réponses existantes donnent une base de ton, mais doivent rester plus variées, plus naturelles et mieux adaptées à la note."
+      : "La fiche répond peu ou pas aux avis : le futur prompt doit installer un ton clair, stable et humain.",
+    summary: `${client.businessName} présente une moyenne de ${Number(average.toFixed(1))}/5 sur ${total} avis analysé${total > 1 ? "s" : ""}. Les points forts les plus visibles concernent ${strengths.slice(0, 2).join(" et ")}, tandis que les sujets à surveiller sont ${weaknesses.slice(0, 2).join(" et ")}. Le taux de réponse propriétaire est d'environ ${total ? Math.round((answered / total) * 100) : 0} %, ce qui servira de base pour améliorer la régularité et la qualité des réponses.`,
+    questionnaireAngles: [...new Set([...strengths, ...weaknesses])].slice(0, 6)
+  };
+}
+
+function compactReviewsForAi(reviews) {
+  return reviews.slice(0, 100).map((review) => ({
+    rating: Number(review.rating || 5),
+    text: String(review.text || "").slice(0, 700),
+    ownerReply: String(review.ownerReply || "").slice(0, 500),
+    answered: Boolean(review.answered || review.ownerReply),
+    createdAt: review.createdAt
+  }));
+}
+
+function extractJsonObject(text) {
+  const source = String(text || "").trim();
+  try {
+    return JSON.parse(source);
+  } catch {
+    const match = source.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function buildAudit(client, reviews) {
+  const fallback = fallbackAudit(client, reviews);
+  if (!OPENAI_API_KEY || !reviews.length) return fallback;
+
+  const prompt = [
+    "Analyse les 100 derniers avis Google d'un commerce pour préparer un prompt de réponses aux avis.",
+    "Tu dois répondre uniquement en JSON valide, sans markdown.",
+    "Format attendu :",
+    '{"summary":"court paragraphe en français","strengths":["..."],"weaknesses":["..."],"ownerReplyStyle":"...","questionnaireAngles":["..."]}',
+    "",
+    `Commerce : ${client.businessName}`,
+    `Statistiques calculées : ${JSON.stringify({
+      reviewCount: fallback.reviewCount,
+      averageRating: fallback.averageRating,
+      responseRate: fallback.responseRate,
+      distribution: fallback.distribution
+    })}`,
+    `Avis : ${JSON.stringify(compactReviewsForAi(reviews))}`,
+    "",
+    "Contraintes : la synthèse doit être courte, utile pour le client, mentionner points forts, points faibles et qualité/fréquence des réponses propriétaire."
+  ].join("\n");
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        input: prompt,
+        temperature: 0.2,
+        max_output_tokens: 1200
+      })
+    });
+    if (!response.ok) return fallback;
+    const data = await response.json();
+    const parsed = extractJsonObject(extractOpenAIText(data));
+    if (!parsed) return fallback;
+    return {
+      ...fallback,
+      summary: parsed.summary || fallback.summary,
+      strengths: Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 6) : fallback.strengths,
+      weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses.slice(0, 6) : fallback.weaknesses,
+      ownerReplyStyle: parsed.ownerReplyStyle || fallback.ownerReplyStyle,
+      questionnaireAngles: Array.isArray(parsed.questionnaireAngles) ? parsed.questionnaireAngles.slice(0, 8) : fallback.questionnaireAngles
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function defaultCalibrationReviews(audit, client) {
+  const weak = audit.weaknesses?.[0] || "l'attente";
+  const strong = audit.strengths?.[0] || "l'accueil";
+  return [
+    { rating: 5, text: `Très bonne expérience chez ${client.businessName}, ${strong} au rendez-vous et équipe agréable.`, intent: "positif avec commentaire" },
+    { rating: 5, text: "5 étoiles, rien à redire.", intent: "positif sans détail" },
+    { rating: 4, text: `Très bien dans l'ensemble, mais petit point à améliorer sur ${weak}.`, intent: "mitigé positif" },
+    { rating: 4, text: "Bonne expérience, je recommande.", intent: "positif court" },
+    { rating: 3, text: `Correct, mais j'ai trouvé que ${weak} pouvait être mieux géré.`, intent: "mitigé constructif" },
+    { rating: 3, text: "Avis partagé, il y a du bon mais aussi quelques détails à revoir.", intent: "mitigé vague" },
+    { rating: 2, text: `Déçu par mon passage, notamment à cause de ${weak}.`, intent: "négatif précis" },
+    { rating: 1, text: "Mauvaise expérience, je ne pense pas revenir.", intent: "négatif général" },
+    { rating: 2, text: "Accueil froid et problème au moment de payer.", intent: "négatif accueil/caisse" },
+    { rating: 1, text: "Très déçu, aucun sens du client.", intent: "négatif agressif" }
+  ];
+}
+
+function fallbackReplyPrompt(client, audit, answers = {}) {
+  const businessAliases = String(answers.businessAliases || client.businessName)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const aliases = businessAliases.length ? businessAliases : [client.businessName, "notre équipe", "l'établissement"];
+  return [
+    "Objectif :",
+    `Répondre aux avis Google de ${client.businessName} avec un ton humain, chaleureux, professionnel et naturel.`,
+    "",
+    "Style général :",
+    "* Toujours commencer par : Bonjour [prénom],",
+    "* Remercier systématiquement la personne, même si l'avis contient uniquement une note sans commentaire.",
+    "* Écrire comme une vraie personne, pas comme un message automatique.",
+    "* Rester simple, naturel et direct.",
+    "* Faire des réponses courtes : 2 à 4 phrases maximum.",
+    "* Varier les formulations d'une réponse à l'autre.",
+    "* Adapter l'intensité de la réponse à la note et au contenu de l'avis.",
+    "* Ne jamais inventer de détail absent de l'avis.",
+    "* Garder une orthographe impeccable et un ton respectueux.",
+    "",
+    "Vocabulaire à varier :",
+    ...aliases.map((alias) => `* ${alias}`),
+    "",
+    "Points forts à valoriser naturellement :",
+    ...(audit.strengths || []).map((item) => `* ${item}`),
+    "",
+    "Points faibles à traiter avec tact :",
+    ...(audit.weaknesses || []).map((item) => `* ${item}`),
+    answers.knownWeakness ? `* Contexte fourni par le client : ${answers.knownWeakness}` : "",
+    "",
+    "Avis positifs : remercier chaleureusement, mentionner un détail naturel si utile, inviter à revenir sans insister.",
+    "Avis 4 étoiles : remercier, rester positif et demander simplement ce qui pourrait être amélioré si cela semble naturel.",
+    "Avis mitigés : rester ouvert, constructif et inviter la personne à préciser son retour.",
+    "Avis négatifs : reconnaître la déception sans se justifier longuement, ne jamais accuser le client, ne jamais promettre de compensation, proposer un échange direct si nécessaire.",
+    "",
+    answers.emojiPolicy ? `Émojis : ${answers.emojiPolicy}` : "Émojis : sobres, surtout sur les avis positifs ou neutres, jamais automatiques.",
+    answers.mustAvoid ? `Formules à éviter : ${answers.mustAvoid}` : "Formules à éviter : votre satisfaction est notre priorité, toute formule trop froide, corporate ou automatique.",
+    answers.extraGuidelines ? `Consignes spécifiques du client : ${answers.extraGuidelines}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function generateReplyProfile(client, audit, answers = {}) {
+  const fallbackPrompt = fallbackReplyPrompt(client, audit, answers);
+  const fallbackExamples = defaultCalibrationReviews(audit, client);
+  if (!OPENAI_API_KEY) {
+    return {
+      summary: `Le prompt proposé reprend les forces identifiées (${(audit.strengths || []).slice(0, 2).join(", ")}) et encadre les sujets sensibles (${(audit.weaknesses || []).slice(0, 2).join(", ")}).`,
+      prompt: fallbackPrompt,
+      examples: fallbackExamples
+    };
+  }
+
+  const input = [
+    "Crée un prompt opérationnel en français pour un agent IA qui répond aux avis Google.",
+    "Réponds uniquement en JSON valide, sans markdown.",
+    "Format : {\"summary\":\"...\",\"prompt\":\"...\",\"examples\":[{\"rating\":5,\"text\":\"...\",\"intent\":\"...\"}]}",
+    "",
+    "Contraintes indispensables du prompt :",
+    "- orthographe impeccable, ton correct, humain, professionnel et naturel",
+    "- commencer par Bonjour [prénom],",
+    "- remercier systématiquement",
+    "- réponses courtes, 2 à 4 phrases",
+    "- varier les formulations",
+    "- ne jamais inventer de détail",
+    "- avis négatifs : calme, respectueux, non défensif, pas de promesse commerciale",
+    "- intégrer le style des anciennes réponses si pertinent, mais corriger les défauts",
+    "- prévoir les cas : 5 étoiles avec/sans commentaire, 4 étoiles, 3 étoiles, négatifs, agressifs, problème caisse/prix/accueil",
+    "",
+    "Les exemples doivent contenir exactement 10 avis crédibles : au moins 3 négatifs, au moins 2 mitigés, au moins 3 positifs, inspirés des forces/faiblesses de l'audit.",
+    "",
+    `Commerce : ${client.businessName}`,
+    `Audit : ${JSON.stringify(audit)}`,
+    `Réponses questionnaire : ${JSON.stringify(answers)}`,
+    "",
+    "Le prompt final doit être détaillé, prêt à copier dans un champ système, avec listes de règles et exemples d'intention."
+  ].join("\n");
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        input,
+        temperature: 0.35,
+        max_output_tokens: 3500
+      })
+    });
+    if (!response.ok) throw new Error("OpenAI unavailable");
+    const data = await response.json();
+    const parsed = extractJsonObject(extractOpenAIText(data));
+    if (!parsed?.prompt) throw new Error("Invalid profile JSON");
+    return {
+      summary: parsed.summary || "Prompt proposé à partir de l'audit et du questionnaire.",
+      prompt: parsed.prompt,
+      examples: Array.isArray(parsed.examples) && parsed.examples.length ? parsed.examples.slice(0, 10) : fallbackExamples
+    };
+  } catch {
+    return {
+      summary: `Le prompt proposé reprend les forces identifiées (${(audit.strengths || []).slice(0, 2).join(", ")}) et encadre les sujets sensibles (${(audit.weaknesses || []).slice(0, 2).join(", ")}).`,
+      prompt: fallbackPrompt,
+      examples: fallbackExamples
+    };
+  }
+}
+
+async function generateSampleReply(client, prompt, review) {
+  if (!OPENAI_API_KEY) {
+    return suggestReply(review.text || "", Number(review.rating || 5), prompt || client.replyPolicy || "");
+  }
+
+  const input = [
+    `Commerce : ${client.businessName}`,
+    "Prompt de style à respecter :",
+    prompt || client.replyPolicy || "",
+    "",
+    `Note : ${Number(review.rating || 5)}/5`,
+    `Avis : ${review.text || ""}`,
+    "",
+    "Rédige uniquement la réponse Google proposée. Pas de titre, pas d'explication."
+  ].join("\n");
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        input,
+        temperature: 0.35,
+        max_output_tokens: 350
+      })
+    });
+    if (!response.ok) throw new Error("OpenAI unavailable");
+    const data = await response.json();
+    return extractOpenAIText(data) || suggestReply(review.text || "", Number(review.rating || 5), prompt || client.replyPolicy || "");
+  } catch {
+    return suggestReply(review.text || "", Number(review.rating || 5), prompt || client.replyPolicy || "");
+  }
 }
 
 export async function handleApi(req, res) {
@@ -581,6 +940,57 @@ export async function handleApi(req, res) {
     db.sessions = db.sessions.filter((item) => item.userId !== client.id || item.token === currentToken);
     await saveDb(db);
     json(res, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === "/api/client/reply-profile/audit" && req.method === "POST") {
+    if (session.role !== "client") return json(res, 403, { error: "Accès refusé." });
+    const client = db.clients.find((item) => item.id === session.userId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    try {
+      const reviews = await fetchGoogleReviewsForAudit(db, client, 100);
+      const audit = await buildAudit(client, reviews);
+      json(res, 200, {
+        audit,
+        reviews: compactReviewsForAi(reviews).slice(0, 12)
+      });
+    } catch (error) {
+      json(res, 500, { error: error.message || "Impossible de lancer l'audit des avis." });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/client/reply-profile/generate" && req.method === "POST") {
+    if (session.role !== "client") return json(res, 403, { error: "Accès refusé." });
+    const client = db.clients.find((item) => item.id === session.userId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    const body = await readBody(req);
+    const audit = body.audit || fallbackAudit(client, await fetchGoogleReviewsForAudit(db, client, 100));
+    const profile = await generateReplyProfile(client, audit, body.answers || {});
+    json(res, 200, profile);
+    return;
+  }
+
+  if (url.pathname === "/api/client/reply-profile/sample-reply" && req.method === "POST") {
+    if (session.role !== "client") return json(res, 403, { error: "Accès refusé." });
+    const client = db.clients.find((item) => item.id === session.userId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    const body = await readBody(req);
+    const reply = await generateSampleReply(client, body.prompt || client.replyPolicy || "", body.review || {});
+    json(res, 200, { reply });
+    return;
+  }
+
+  if (url.pathname === "/api/client/reply-profile" && req.method === "PATCH") {
+    if (session.role !== "client") return json(res, 403, { error: "Accès refusé." });
+    const client = db.clients.find((item) => item.id === session.userId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    const body = await readBody(req);
+    const prompt = String(body.prompt || "").trim();
+    if (prompt.length < 200) return json(res, 400, { error: "Le prompt final est trop court pour être enregistré." });
+    client.replyPolicy = prompt;
+    await saveDb(db);
+    json(res, 200, { client: publicClient(client) });
     return;
   }
 
@@ -1007,15 +1417,14 @@ function encodeMailHeader(value) {
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
-function suggestReply(text, rating, replyPolicy = "") {
-  const shortPolicy = replyPolicy ? `\n\nRègles de ton appliquées : ${replyPolicy}` : "";
+function suggestReply(text, rating) {
   if (rating >= 4) {
-    return `Bonjour, merci beaucoup pour votre avis positif. Nous sommes ravis de lire votre retour et espérons vous revoir très bientôt.${shortPolicy}`;
+    return "Bonjour, merci beaucoup pour votre avis positif. Nous sommes ravis de lire votre retour et espérons vous revoir très bientôt.";
   }
   if (rating === 3) {
-    return `Bonjour, merci pour votre retour. Nous prenons votre remarque en compte afin d'améliorer l'expérience de nos clients.${shortPolicy}`;
+    return "Bonjour, merci pour votre retour. Nous prenons votre remarque en compte afin d'améliorer l'expérience de nos clients.";
   }
-  return `Bonjour, merci d'avoir pris le temps de partager votre expérience. Nous sommes désolés que celle-ci n'ait pas été à la hauteur de vos attentes et restons disponibles pour échanger avec vous.${shortPolicy}`;
+  return "Bonjour, merci d'avoir pris le temps de partager votre expérience. Nous sommes désolés que celle-ci n'ait pas été à la hauteur de vos attentes et restons disponibles pour échanger avec vous.";
 }
 
 export async function initApi() {

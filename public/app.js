@@ -11,6 +11,12 @@ const STATUS_LABELS = {
 const DEFAULT_EMAIL_SUBJECT_TEMPLATE = "Vos réponses aux avis Google sont prêtes - {{businessName}}";
 const DEFAULT_EMAIL_BODY_TEMPLATE =
   "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori";
+let replyProfileState = {
+  clientId: "",
+  audit: null,
+  profile: null,
+  examples: []
+};
 
 function loadEmailedClientIds() {
   try {
@@ -106,6 +112,19 @@ function renderEmailText(template, client, pendingReviews, averageRating, totalR
     .replaceAll("{{totalReviews}}", String(totalReviews))
     .replaceAll("{{averageRating}}", String(averageRating))
     .replaceAll("{{loginUrl}}", window.location.origin);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeTextarea(value) {
+  return escapeHtml(value).replaceAll("</textarea", "&lt;/textarea");
 }
 
 function showNotice(message, type = "success") {
@@ -603,6 +622,251 @@ function formatLongDate(value) {
   });
 }
 
+function ensureReplyProfileState(clientId) {
+  if (replyProfileState.clientId === clientId) return;
+  replyProfileState = {
+    clientId,
+    audit: null,
+    profile: null,
+    examples: []
+  };
+}
+
+function auditTags(items = []) {
+  return items.map((item) => `<span class="mini-tag">${escapeHtml(item)}</span>`).join("");
+}
+
+function questionnaireGhostReviews(audit, client) {
+  const weaknesses = audit?.weaknesses?.length ? audit.weaknesses : ["l'attente", "l'accueil", "un passage en caisse"];
+  const strengths = audit?.strengths?.length ? audit.strengths : ["la qualité du service", "les conseils", "l'expérience globale"];
+  return [
+    {
+      key: "negativeReply1",
+      label: "Avis négatif 1",
+      rating: 1,
+      text: `Très déçu par ${weaknesses[0]}. Je ne pense pas revenir.`
+    },
+    {
+      key: "negativeReply2",
+      label: "Avis négatif 2",
+      rating: 2,
+      text: `Mauvaise expérience, surtout à cause de ${weaknesses[1] || weaknesses[0]}.`
+    },
+    {
+      key: "negativeReply3",
+      label: "Avis négatif 3",
+      rating: 1,
+      text: `Je trouve que le commerce ne prend pas assez en compte les clients, notamment sur ${weaknesses[2] || weaknesses[0]}.`
+    },
+    {
+      key: "mixedReply1",
+      label: "Avis mitigé",
+      rating: 3,
+      text: `Expérience correcte, ${strengths[0]} est appréciable, mais ${weaknesses[0]} pourrait être amélioré.`
+    },
+    {
+      key: "positiveReply1",
+      label: "Avis positif",
+      rating: 5,
+      text: `Très bonne expérience, j'ai particulièrement apprécié ${strengths[0]} et l'accueil de l'équipe.`
+    }
+  ];
+}
+
+function clientReplyProfilePanel(client, googleStatus) {
+  ensureReplyProfileState(client.id);
+  const audit = replyProfileState.audit;
+  const profile = replyProfileState.profile;
+  return `
+    <div class="panel reply-profile-panel">
+      <div class="section-header">
+        <div>
+          <span class="eyebrow">Profil IA</span>
+          <h2>Créer le style de réponse</h2>
+          <p class="muted">Audit des avis, questionnaire de ton, prompt final et exemples de calibration.</p>
+        </div>
+        <button data-run-profile-audit>${audit ? "Relancer l'audit" : "Auditer les avis"}</button>
+      </div>
+      ${
+        !googleStatus.connected
+          ? "<p class='muted empty-state'>Connectez Google et sélectionnez votre établissement pour auditer les 100 derniers avis. En attendant, Notori peut utiliser les avis déjà synchronisés pour tester le parcours.</p>"
+          : ""
+      }
+      ${audit ? replyAuditSummary(audit) : "<p class='muted empty-state'>Lancez l'audit pour analyser les 100 derniers avis, les étoiles, les réponses propriétaire et les sujets récurrents.</p>"}
+      ${replyQuestionnaire(client, audit)}
+      ${profile ? replyProfileResult(profile) : ""}
+    </div>
+  `;
+}
+
+function replyAuditSummary(audit) {
+  return `
+    <div class="audit-summary">
+      <div class="audit-main">
+        <strong>Analyse synthétique</strong>
+        <p>${escapeHtml(audit.summary)}</p>
+      </div>
+      <div class="audit-stats">
+        <div><span>Avis analysés</span><strong>${audit.reviewCount || 0}</strong></div>
+        <div><span>Moyenne</span><strong>${audit.averageRating || 0}/5</strong></div>
+        <div><span>Taux de réponse</span><strong>${audit.responseRate || 0}%</strong></div>
+      </div>
+      <div class="audit-tags">
+        <div>
+          <span>Points forts</span>
+          <p>${auditTags(audit.strengths)}</p>
+        </div>
+        <div>
+          <span>Points faibles</span>
+          <p>${auditTags(audit.weaknesses)}</p>
+        </div>
+      </div>
+      <p class="muted">${escapeHtml(audit.ownerReplyStyle || "")}</p>
+    </div>
+  `;
+}
+
+function replyQuestionnaire(client, audit) {
+  const ghostReviews = questionnaireGhostReviews(audit, client);
+  return `
+    <details class="compact-settings questionnaire-drawer" ${audit ? "open" : ""}>
+      <summary>Questionnaire de ton</summary>
+      <form id="reply-profile-form">
+        <div class="settings-grid">
+          <div class="settings-group">
+            <h3>Identité et vocabulaire</h3>
+            <label>Quels noms peut-on utiliser pour parler de votre commerce ?
+              <textarea name="businessAliases" placeholder="Ex : la jardinerie, le magasin, notre équipe, nos rayons...">${escapeTextarea(client.businessName)}</textarea>
+            </label>
+            <label>Quel ton souhaitez-vous ?
+              <select name="tone">
+                <option value="humain, chaleureux, professionnel et naturel">Humain, chaleureux, professionnel</option>
+                <option value="simple, direct, calme et très professionnel">Simple, direct, calme</option>
+                <option value="très chaleureux, proche et naturel">Très chaleureux et proche</option>
+              </select>
+            </label>
+            <label>Émojis
+              <input name="emojiPolicy" value="Sobres, surtout dans les avis positifs ou neutres, jamais automatiques." />
+            </label>
+          </div>
+          <div class="settings-group">
+            <h3>Faiblesses connues</h3>
+            <label>Y a-t-il un point faible connu que vous voulez expliquer à l'IA ?
+              <textarea name="knownWeakness" placeholder="Ex : l'attente peut être longue le samedi, l'équipe est réduite en haute saison..."></textarea>
+            </label>
+            <label>Que voulez-vous dire aux clients quand ce sujet revient ?
+              <textarea name="weaknessContext" placeholder="Expliquez simplement la réalité du terrain, sans écrire une réponse complète."></textarea>
+            </label>
+          </div>
+          <div class="settings-group wide">
+            <h3>Formules et limites</h3>
+            <label>Formules à éviter
+              <textarea name="mustAvoid" placeholder="Ex : Votre satisfaction est notre priorité, réponses trop corporate, promesses de remboursement...">Votre satisfaction est notre priorité. Toute formule trop froide, trop commerciale ou trop automatique.</textarea>
+            </label>
+            <label>Consignes spécifiques
+              <textarea name="extraGuidelines" placeholder="Ex : ne pas parler de compensation, proposer un appel uniquement pour les avis très négatifs..."></textarea>
+            </label>
+          </div>
+        </div>
+        <div class="ghost-review-grid">
+          ${ghostReviews
+            .map(
+              (review) => `
+                <div class="ghost-review">
+                  <span>${review.label} · ${review.rating}/5</span>
+                  <p>${escapeHtml(review.text)}</p>
+                  <label>Comment aimeriez-vous répondre ?
+                    <textarea name="${review.key}" placeholder="Écrivez l'intention, le ton, ou une réponse exemple."></textarea>
+                  </label>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+        <div class="actions">
+          <button type="submit">${replyProfileState.profile ? "Regénérer le prompt" : "Générer le prompt"}</button>
+        </div>
+      </form>
+    </details>
+  `;
+}
+
+function replyProfileResult(profile) {
+  return `
+    <div class="profile-result">
+      <h3>Synthèse proposée</h3>
+      <p class="muted">${escapeHtml(profile.summary || "")}</p>
+      <label>Prompt final proposé
+        <textarea id="reply-profile-prompt" class="large-textarea">${escapeTextarea(profile.prompt || "")}</textarea>
+      </label>
+      <div class="calibration-list">
+        <h3>Calibration avec des avis exemples</h3>
+        <p class="muted">Modifiez les avis si besoin, générez une réponse, puis validez le profil quand le style vous convient.</p>
+        ${replyProfileState.examples.map((example, index) => calibrationCard(example, index)).join("")}
+      </div>
+      <div class="actions">
+        <button data-save-reply-profile>Valider ce profil IA</button>
+      </div>
+    </div>
+  `;
+}
+
+function calibrationCard(example, index) {
+  return `
+    <article class="calibration-card" data-calibration-index="${index}">
+      <div class="review-head">
+        <div>
+          <h3>${escapeHtml(example.intent || `Avis exemple ${index + 1}`)}</h3>
+          <span class="stars">${"★".repeat(Number(example.rating || 5))}${"☆".repeat(5 - Number(example.rating || 5))}</span>
+        </div>
+        <select data-example-rating>
+          ${[1, 2, 3, 4, 5].map((rating) => `<option value="${rating}" ${Number(example.rating) === rating ? "selected" : ""}>${rating}/5</option>`).join("")}
+        </select>
+      </div>
+      <label>Avis exemple
+        <textarea data-example-text>${escapeTextarea(example.text || "")}</textarea>
+      </label>
+      <div class="actions">
+        <button type="button" class="secondary" data-generate-sample-reply>Générer une réponse d'exemple</button>
+      </div>
+      <label>Réponse d'exemple
+        <textarea data-example-reply>${escapeTextarea(example.reply || "")}</textarea>
+      </label>
+    </article>
+  `;
+}
+
+function collectReplyProfileAnswers(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+
+function syncCalibrationFromDom() {
+  document.querySelectorAll("[data-calibration-index]").forEach((card) => {
+    const index = Number(card.dataset.calibrationIndex);
+    replyProfileState.examples[index] = {
+      ...(replyProfileState.examples[index] || {}),
+      rating: Number(card.querySelector("[data-example-rating]").value),
+      text: card.querySelector("[data-example-text]").value,
+      reply: card.querySelector("[data-example-reply]").value
+    };
+  });
+}
+
+function finalPromptWithCalibration(prompt) {
+  syncCalibrationFromDom();
+  const examples = replyProfileState.examples.filter((example) => example.text && example.reply);
+  if (!examples.length) return prompt;
+  return [
+    prompt,
+    "",
+    "Exemples validés par le client pour calibrer le style :",
+    ...examples.map(
+      (example, index) =>
+        [`Exemple ${index + 1} - ${example.rating}/5`, `Avis : ${example.text}`, `Réponse attendue : ${example.reply}`].join("\n")
+    )
+  ].join("\n\n");
+}
+
 async function renderClient() {
   const me = await api("/api/me");
   if (!me.client?.id) {
@@ -632,10 +896,107 @@ async function renderClient() {
         ${clientPasswordPanel(me.client)}
       </aside>
       <section>
+        ${clientReplyProfilePanel(me.client, googleStatus)}
         ${reviews.filter((review) => review.status === "pending").map((review) => reviewCard(review, "client")).join("") || "<p class='muted'>Aucun avis en attente.</p>"}
       </section>
     </div>
   `, "Votre espace de validation");
+  document.querySelector("[data-run-profile-audit]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    try {
+      button.disabled = true;
+      button.textContent = "Audit en cours...";
+      showNotice("Analyse des avis en cours. Cela peut prendre quelques secondes.", "warning");
+      const result = await api("/api/client/reply-profile/audit", { method: "POST" });
+      replyProfileState.audit = result.audit;
+      replyProfileState.profile = null;
+      replyProfileState.examples = [];
+      await renderClient();
+      showNotice("Audit des avis terminé.");
+    } catch (error) {
+      showNotice(error.message, "error");
+      button.disabled = false;
+      button.textContent = "Auditer les avis";
+    }
+  });
+  document.querySelector("#reply-profile-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button[type='submit']");
+    try {
+      button.disabled = true;
+      button.textContent = "Génération...";
+      const result = await api("/api/client/reply-profile/generate", {
+        method: "POST",
+        body: {
+          audit: replyProfileState.audit,
+          answers: collectReplyProfileAnswers(event.currentTarget)
+        }
+      });
+      replyProfileState.profile = {
+        summary: result.summary,
+        prompt: result.prompt
+      };
+      replyProfileState.examples = result.examples || [];
+      await renderClient();
+      showNotice("Prompt proposé généré.");
+    } catch (error) {
+      showNotice(error.message, "error");
+      button.disabled = false;
+      button.textContent = "Générer le prompt";
+    }
+  });
+  document.querySelectorAll("[data-generate-sample-reply]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const card = button.closest("[data-calibration-index]");
+      const index = Number(card.dataset.calibrationIndex);
+      try {
+        button.disabled = true;
+        button.textContent = "Génération...";
+        const prompt = document.querySelector("#reply-profile-prompt")?.value || replyProfileState.profile?.prompt || "";
+        const review = {
+          rating: Number(card.querySelector("[data-example-rating]").value),
+          text: card.querySelector("[data-example-text]").value
+        };
+        const result = await api("/api/client/reply-profile/sample-reply", {
+          method: "POST",
+          body: { prompt, review }
+        });
+        card.querySelector("[data-example-reply]").value = result.reply;
+        replyProfileState.examples[index] = {
+          ...(replyProfileState.examples[index] || {}),
+          ...review,
+          reply: result.reply
+        };
+        showNotice("Réponse d'exemple générée.");
+      } catch (error) {
+        showNotice(error.message, "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = "Générer une réponse d'exemple";
+      }
+    });
+  });
+  document.querySelector("[data-save-reply-profile]")?.addEventListener("click", async () => {
+    const button = document.querySelector("[data-save-reply-profile]");
+    const prompt = document.querySelector("#reply-profile-prompt")?.value || "";
+    try {
+      button.disabled = true;
+      button.textContent = "Validation...";
+      const finalPrompt = finalPromptWithCalibration(prompt);
+      await api("/api/client/reply-profile", {
+        method: "PATCH",
+        body: { prompt: finalPrompt }
+      });
+      replyProfileState.profile.prompt = finalPrompt;
+      showNotice("Profil IA validé. Les prochaines réponses utiliseront ce prompt.");
+      button.disabled = false;
+      button.textContent = "Mettre à jour le profil IA";
+    } catch (error) {
+      showNotice(error.message, "error");
+      button.disabled = false;
+      button.textContent = "Valider ce profil IA";
+    }
+  });
   document.querySelector("#client-google-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);

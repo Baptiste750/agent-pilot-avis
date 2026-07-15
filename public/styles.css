@@ -676,6 +676,122 @@ button.danger:hover {
   margin-bottom: 6px;
 }
 
+.reply-profile-panel {
+  margin-bottom: 18px;
+  border-color: #111;
+}
+
+.audit-summary,
+.profile-result {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: #f7f7f4;
+}
+
+.audit-main p {
+  margin: 8px 0 0;
+  line-height: 1.45;
+}
+
+.audit-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.audit-stats div,
+.ghost-review,
+.calibration-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.audit-stats span,
+.audit-tags span,
+.ghost-review > span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.audit-stats strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 24px;
+}
+
+.audit-tags {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.audit-tags p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.mini-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eeeeea;
+  color: #111;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.questionnaire-drawer {
+  margin-top: 16px;
+}
+
+.ghost-review-grid,
+.calibration-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ghost-review-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 18px 0;
+}
+
+.ghost-review p {
+  margin: 8px 0 12px;
+}
+
+.large-textarea {
+  min-height: 360px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.calibration-list {
+  margin-top: 16px;
+}
+
+.calibration-card {
+  background: #fbfbf8;
+}
+
+.calibration-card .review-head select {
+  width: auto;
+  min-width: 90px;
+}
+
 .timeline {
   display: grid;
   gap: 12px;
@@ -744,6 +860,12 @@ button.danger:hover {
   }
 
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-stats,
+  .audit-tags,
+  .ghost-review-grid {
     grid-template-columns: 1fr;
   }
 

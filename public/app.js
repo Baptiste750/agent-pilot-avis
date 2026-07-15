@@ -712,6 +712,16 @@ function defaultBusinessAliases(client) {
   return [client.businessName, "notre équipe", "notre établissement", "notre commerce"].join("\n");
 }
 
+function defaultClaimedStrengths(audit) {
+  const strengths = audit?.strengths?.length ? audit.strengths : ["l'accueil", "la qualité du service", "les conseils"];
+  return strengths.slice(0, 5).join("\n");
+}
+
+function defaultKnownConstraints(audit) {
+  const weaknesses = audit?.weaknesses?.length ? audit.weaknesses : ["affluence à certaines heures", "délais d'attente possibles"];
+  return weaknesses.slice(0, 4).join("\n");
+}
+
 function defaultExtraGuidelines() {
   return [
     "Répondre avec une orthographe impeccable.",
@@ -782,6 +792,56 @@ function replyQuestionnaire(client, audit) {
       <summary>Questionnaire de ton</summary>
       <form id="reply-profile-form">
         <div class="settings-grid">
+          <div class="settings-group wide">
+            <h3>Profil du commerce</h3>
+            <p class="muted">Ces informations aident l'IA à parler comme une personne qui comprend réellement votre activité.</p>
+            <div class="form-grid">
+              <label>Type d'activité
+                <select name="businessType">
+                  <option value="commerce de proximité">Commerce de proximité</option>
+                  <option value="restaurant">Restaurant</option>
+                  <option value="hôtel ou hébergement">Hôtel ou hébergement</option>
+                  <option value="artisan ou créateur">Artisan ou créateur</option>
+                  <option value="chocolatier, boulangerie ou métier de bouche">Chocolatier, boulangerie ou métier de bouche</option>
+                  <option value="jardinerie, pépinière ou commerce végétal">Jardinerie, pépinière ou commerce végétal</option>
+                  <option value="service local">Service local</option>
+                  <option value="autre activité locale">Autre activité locale</option>
+                </select>
+              </label>
+              <label>Précision métier
+                <input name="businessTypeDetail" placeholder="Ex : pépinière familiale, restaurant italien, institut premium..." />
+              </label>
+              <label>Taille de la structure
+                <select name="companySize">
+                  <option value="indépendant ou très petite équipe">Indépendant ou très petite équipe</option>
+                  <option value="petite équipe locale">Petite équipe locale</option>
+                  <option value="PME structurée">PME structurée</option>
+                  <option value="plusieurs établissements">Plusieurs établissements</option>
+                </select>
+              </label>
+              <label>Nombre d'employés
+                <input name="employeeCount" placeholder="Ex : 1, 4, 12, 30..." />
+              </label>
+              <label>Nombre d'établissements
+                <input name="locationCount" placeholder="Ex : 1 boutique, 2 restaurants, 4 agences..." />
+              </label>
+              <label>Équipe en contact client
+                <input name="customerFacingTeam" placeholder="Ex : accueil, vendeurs, serveurs, commerciaux, réception..." />
+              </label>
+              <label>Type de clientèle
+                <textarea name="customerTypes">Clients locaux, habitués, familles, visiteurs de passage et nouveaux clients qui découvrent l'établissement.</textarea>
+              </label>
+              <label>Positionnement du commerce
+                <textarea name="positioning">Accueil humain, service professionnel, expérience simple, fiable et agréable.</textarea>
+              </label>
+              <label>Points forts revendiqués
+                <textarea name="claimedStrengths">${escapeTextarea(defaultClaimedStrengths(audit))}</textarea>
+              </label>
+              <label>Contraintes ou réalités du terrain
+                <textarea name="operationalConstraints">${escapeTextarea(defaultKnownConstraints(audit))}</textarea>
+              </label>
+            </div>
+          </div>
           <div class="settings-group">
             <h3>Identité et vocabulaire</h3>
             <label>Quels noms peut-on utiliser pour parler de votre commerce ?

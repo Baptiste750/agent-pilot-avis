@@ -745,6 +745,21 @@ button.danger:hover {
   margin-bottom: 6px;
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-top: 14px;
+}
+
+.form-grid label {
+  margin: 0;
+}
+
+.form-grid textarea {
+  min-height: 96px;
+}
+
 .settings-actions {
   margin: 0 20px 20px;
 }
@@ -948,6 +963,10 @@ button.danger:hover {
   }
 
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid {
     grid-template-columns: 1fr;
   }
 

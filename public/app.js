@@ -449,16 +449,16 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
           <p>${reviews.length} avis synchronisés · moyenne ${average}/5</p>
         </div>
         <div class="overview-card email-card">
-          <span>Dernier email</span>
-          <strong>${lastEmail ? emailStatusLabel(lastEmail.status) : "Aucun envoi"}</strong>
-          <p>${lastEmail ? formatLongDateTime(lastEmail.createdAt) : "Aucune relance n'a encore été envoyée."}</p>
+          <span>${lastEmail ? emailHeadingLabel(lastEmail.status) : "Dernier email"}</span>
+          <strong>${lastEmail ? formatLongDateTime(lastEmail.createdAt) : "Aucun envoi"}</strong>
+          <p>${lastEmail ? relativeDaysLabel(lastEmail.createdAt) : "Aucune relance n'a encore été envoyée."}</p>
         </div>
       </div>
     </div>
     <div class="panel operation-panel">
       <div class="section-header">
         <div>
-          <h2 class="branded-title">Opérations</h2>
+          <h2 class="pen-title">Opérations</h2>
           <p class="muted">Synchronisez les nouveaux avis, relisez les réponses proposées, puis envoyez le lien de validation au client.</p>
         </div>
         <button data-sync-google>Synchroniser</button>
@@ -492,7 +492,7 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
       </div>
     </div>
     <details class="panel section-details settings-panel">
-      <summary><span class="summary-title">Réglages client</span></summary>
+      <summary><span class="pen-title">Réglages client</span></summary>
       <form id="settings-form">
         <div class="settings-grid">
           <div class="settings-group">
@@ -589,6 +589,15 @@ function emailStatusLabel(status) {
   }[status] || status || "Inconnu";
 }
 
+function emailHeadingLabel(status) {
+  return {
+    sent: "Dernier email envoyé",
+    failed: "Dernier email en échec",
+    simulated: "Dernier email simulé",
+    pending: "Dernier email en attente"
+  }[status] || "Dernier email";
+}
+
 function formatDateTime(value) {
   if (!value) return "";
   return new Date(value).toLocaleString("fr-FR", {
@@ -614,6 +623,18 @@ function formatLongDateTime(value) {
     minute: "2-digit"
   });
   return `${longDate} à ${time}`;
+}
+
+function relativeDaysLabel(value) {
+  if (!value) return "";
+  const today = new Date();
+  const date = new Date(value);
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.max(0, Math.floor((todayStart - dateStart) / 86400000));
+  if (diffDays === 0) return "aujourd'hui";
+  if (diffDays === 1) return "il y a 1 jour";
+  return `il y a ${diffDays} jours`;
 }
 
 function formatLongDate(value) {

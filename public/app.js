@@ -644,33 +644,57 @@ function questionnaireGhostReviews(audit, client) {
       key: "negativeReply1",
       label: "Avis négatif 1",
       rating: 1,
-      text: `Très déçu par ${weaknesses[0]}. Je ne pense pas revenir.`
+      text: `Très déçu par ${weaknesses[0]}. Je ne pense pas revenir.`,
+      defaultAnswer:
+        "Remercier le client pour son retour, reconnaître sa déception sans se justifier longuement, rester calme et proposer un échange direct si nécessaire. Ne pas promettre de compensation."
     },
     {
       key: "negativeReply2",
       label: "Avis négatif 2",
       rating: 2,
-      text: `Mauvaise expérience, surtout à cause de ${weaknesses[1] || weaknesses[0]}.`
+      text: `Mauvaise expérience, surtout à cause de ${weaknesses[1] || weaknesses[0]}.`,
+      defaultAnswer:
+        "Répondre avec un ton posé et professionnel. Montrer que le retour est entendu, éviter tout débat public, et inviter la personne à reprendre contact pour comprendre la situation."
     },
     {
       key: "negativeReply3",
       label: "Avis négatif 3",
       rating: 1,
-      text: `Je trouve que le commerce ne prend pas assez en compte les clients, notamment sur ${weaknesses[2] || weaknesses[0]}.`
+      text: `Je trouve que le commerce ne prend pas assez en compte les clients, notamment sur ${weaknesses[2] || weaknesses[0]}.`,
+      defaultAnswer:
+        "Ne pas répondre sur le même ton si l'avis est dur. Rester bref, respectueux, reconnaître que l'expérience n'a pas été satisfaisante et proposer un échange direct."
     },
     {
       key: "mixedReply1",
       label: "Avis mitigé",
       rating: 3,
-      text: `Expérience correcte, ${strengths[0]} est appréciable, mais ${weaknesses[0]} pourrait être amélioré.`
+      text: `Expérience correcte, ${strengths[0]} est appréciable, mais ${weaknesses[0]} pourrait être amélioré.`,
+      defaultAnswer:
+        "Remercier pour le retour, valoriser le point positif sans en faire trop, puis indiquer que la remarque est utile pour progresser. Garder une réponse simple et constructive."
     },
     {
       key: "positiveReply1",
       label: "Avis positif",
       rating: 5,
-      text: `Très bonne expérience, j'ai particulièrement apprécié ${strengths[0]} et l'accueil de l'équipe.`
+      text: `Très bonne expérience, j'ai particulièrement apprécié ${strengths[0]} et l'accueil de l'équipe.`,
+      defaultAnswer:
+        "Remercier chaleureusement, mentionner naturellement le détail positif si cela sonne juste, dire que l'équipe est ravie, et inviter à revenir sans insister."
     }
   ];
+}
+
+function defaultBusinessAliases(client) {
+  return [client.businessName, "notre équipe", "notre établissement", "notre commerce"].join("\n");
+}
+
+function defaultExtraGuidelines() {
+  return [
+    "Répondre avec une orthographe impeccable.",
+    "Ne jamais inventer de détail absent de l'avis.",
+    "Ne pas promettre de remboursement, geste commercial ou compensation.",
+    "Adapter l'intensité de la réponse à la note et au contenu de l'avis.",
+    "Varier les formulations pour éviter les réponses répétitives."
+  ].join("\n");
 }
 
 function clientReplyProfilePanel(client, googleStatus) {
@@ -736,7 +760,7 @@ function replyQuestionnaire(client, audit) {
           <div class="settings-group">
             <h3>Identité et vocabulaire</h3>
             <label>Quels noms peut-on utiliser pour parler de votre commerce ?
-              <textarea name="businessAliases" placeholder="Ex : la jardinerie, le magasin, notre équipe, nos rayons...">${escapeTextarea(client.businessName)}</textarea>
+              <textarea name="businessAliases" placeholder="Ex : la jardinerie, le magasin, notre équipe, nos rayons...">${escapeTextarea(defaultBusinessAliases(client))}</textarea>
             </label>
             <label>Quel ton souhaitez-vous ?
               <select name="tone">
@@ -764,7 +788,7 @@ function replyQuestionnaire(client, audit) {
               <textarea name="mustAvoid" placeholder="Ex : Votre satisfaction est notre priorité, réponses trop corporate, promesses de remboursement...">Votre satisfaction est notre priorité. Toute formule trop froide, trop commerciale ou trop automatique.</textarea>
             </label>
             <label>Consignes spécifiques
-              <textarea name="extraGuidelines" placeholder="Ex : ne pas parler de compensation, proposer un appel uniquement pour les avis très négatifs..."></textarea>
+              <textarea name="extraGuidelines" placeholder="Ex : ne pas parler de compensation, proposer un appel uniquement pour les avis très négatifs...">${escapeTextarea(defaultExtraGuidelines())}</textarea>
             </label>
           </div>
         </div>
@@ -776,7 +800,7 @@ function replyQuestionnaire(client, audit) {
                   <span>${review.label} · ${review.rating}/5</span>
                   <p>${escapeHtml(review.text)}</p>
                   <label>Comment aimeriez-vous répondre ?
-                    <textarea name="${review.key}" placeholder="Écrivez l'intention, le ton, ou une réponse exemple."></textarea>
+                    <textarea name="${review.key}" placeholder="Écrivez l'intention, le ton, ou une réponse exemple.">${escapeTextarea(review.defaultAnswer)}</textarea>
                   </label>
                 </div>
               `

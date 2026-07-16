@@ -600,17 +600,21 @@ function defaultCalibrationReviews(audit, client) {
 function fallbackReplyPrompt(client, audit, answers = {}) {
   const businessAliases = String(answers.businessAliases || client.businessName)
     .split("\n")
+    .flatMap((line) => line.split(","))
     .map((line) => line.trim())
     .filter(Boolean);
   const aliases = businessAliases.length ? businessAliases : [client.businessName, "notre équipe", "l'établissement"];
+  const tone = answers.tone || "humain, chaleureux, professionnel et naturel";
+  const responseLength = answers.responseLength || "2 à 4 phrases maximum";
   return [
     "Objectif :",
-    `Répondre aux avis Google de ${client.businessName} avec un ton humain, chaleureux, professionnel et naturel.`,
+    `Répondre aux avis Google de ${client.businessName} avec un ton ${tone}.`,
     "",
     "Contexte du commerce :",
     answers.businessType ? `* Type d'activité : ${answers.businessType}` : "",
     answers.businessTypeDetail ? `* Précision métier : ${answers.businessTypeDetail}` : "",
     answers.companySize ? `* Taille de la structure : ${answers.companySize}` : "",
+    answers.structureDetails ? `* Taille concrète et lieux : ${answers.structureDetails}` : "",
     answers.employeeCount ? `* Nombre d'employés : ${answers.employeeCount}` : "",
     answers.locationCount ? `* Nombre d'établissements : ${answers.locationCount}` : "",
     answers.customerFacingTeam ? `* Équipe en contact client : ${answers.customerFacingTeam}` : "",
@@ -624,21 +628,24 @@ function fallbackReplyPrompt(client, audit, answers = {}) {
     "* Remercier systématiquement la personne, même si l'avis contient uniquement une note sans commentaire.",
     "* Écrire comme une vraie personne, pas comme un message automatique.",
     "* Rester simple, naturel et direct.",
-    "* Faire des réponses courtes : 2 à 4 phrases maximum.",
+    `* Faire des réponses courtes : ${responseLength}.`,
     "* Varier les formulations d'une réponse à l'autre.",
     "* Adapter l'intensité de la réponse à la note et au contenu de l'avis.",
     "* Ne jamais inventer de détail absent de l'avis.",
     "* Garder une orthographe impeccable et un ton respectueux.",
+    answers.styleWords ? `* Les réponses doivent sonner : ${answers.styleWords}.` : "",
     "",
     "Vocabulaire à varier :",
     ...aliases.map((alias) => `* ${alias}`),
     "",
     "Points forts à valoriser naturellement :",
     ...(audit.strengths || []).map((item) => `* ${item}`),
+    answers.claimedStrengths ? `* Points forts déclarés par le client : ${answers.claimedStrengths}` : "",
     "",
     "Points faibles à traiter avec tact :",
     ...(audit.weaknesses || []).map((item) => `* ${item}`),
     answers.knownWeakness ? `* Contexte fourni par le client : ${answers.knownWeakness}` : "",
+    answers.weaknessContext ? `* Intention à transmettre : ${answers.weaknessContext}` : "",
     "",
     "Avis positifs : remercier chaleureusement, mentionner un détail naturel si utile, inviter à revenir sans insister.",
     "Avis 4 étoiles : remercier, rester positif et demander simplement ce qui pourrait être amélioré si cela semble naturel.",
@@ -647,6 +654,7 @@ function fallbackReplyPrompt(client, audit, answers = {}) {
     "",
     answers.emojiPolicy ? `Émojis : ${answers.emojiPolicy}` : "Émojis : sobres, surtout sur les avis positifs ou neutres, jamais automatiques.",
     answers.mustAvoid ? `Formules à éviter : ${answers.mustAvoid}` : "Formules à éviter : votre satisfaction est notre priorité, toute formule trop froide, corporate ou automatique.",
+    answers.forbiddenPromises ? `Promesses interdites : ${answers.forbiddenPromises}` : "Promesses interdites : ne pas promettre de remboursement, geste commercial ou compensation si ce n'est pas certain.",
     answers.extraGuidelines ? `Consignes spécifiques du client : ${answers.extraGuidelines}` : ""
   ]
     .filter(Boolean)

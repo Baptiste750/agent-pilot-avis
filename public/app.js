@@ -15,8 +15,10 @@ let replyProfileState = {
   clientId: "",
   audit: null,
   profile: null,
-  examples: []
+  examples: [],
+  answers: {}
 };
+let clientActiveTab = "reviews";
 
 function loadEmailedClientIds() {
   try {
@@ -128,6 +130,10 @@ function escapeHtml(value) {
 
 function escapeTextarea(value) {
   return escapeHtml(value).replaceAll("</textarea", "&lt;/textarea");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("\n", " ");
 }
 
 function showNotice(message, type = "success") {
@@ -653,7 +659,8 @@ function ensureReplyProfileState(clientId) {
     clientId,
     audit: null,
     profile: null,
-    examples: []
+    examples: [],
+    answers: {}
   };
 }
 
@@ -670,66 +677,90 @@ function questionnaireGhostReviews(audit, client) {
       label: "Avis négatif 1",
       rating: 1,
       text: `Très déçu par ${weaknesses[0]}. Je ne pense pas revenir.`,
-      defaultAnswer:
-        "Remercier le client pour son retour, reconnaître sa déception sans se justifier longuement, rester calme et proposer un échange direct si nécessaire. Ne pas promettre de compensation."
+      placeholder:
+        "Exemple : reconnaître la déception, rester calme, proposer un échange direct, sans promettre de geste commercial."
     },
     {
       key: "negativeReply2",
       label: "Avis négatif 2",
       rating: 2,
       text: `Mauvaise expérience, surtout à cause de ${weaknesses[1] || weaknesses[0]}.`,
-      defaultAnswer:
-        "Répondre avec un ton posé et professionnel. Montrer que le retour est entendu, éviter tout débat public, et inviter la personne à reprendre contact pour comprendre la situation."
+      placeholder:
+        "Exemple : montrer que le retour est entendu, ne pas débattre publiquement, inviter à reprendre contact."
     },
     {
       key: "negativeReply3",
       label: "Avis négatif 3",
       rating: 1,
       text: `Je trouve que le commerce ne prend pas assez en compte les clients, notamment sur ${weaknesses[2] || weaknesses[0]}.`,
-      defaultAnswer:
-        "Ne pas répondre sur le même ton si l'avis est dur. Rester bref, respectueux, reconnaître que l'expérience n'a pas été satisfaisante et proposer un échange direct."
+      placeholder:
+        "Exemple : rester bref et respectueux, reconnaître l'expérience décevante, ne pas répondre sur le même ton."
     },
     {
       key: "mixedReply1",
       label: "Avis mitigé",
       rating: 3,
       text: `Expérience correcte, ${strengths[0]} est appréciable, mais ${weaknesses[0]} pourrait être amélioré.`,
-      defaultAnswer:
-        "Remercier pour le retour, valoriser le point positif sans en faire trop, puis indiquer que la remarque est utile pour progresser. Garder une réponse simple et constructive."
+      placeholder:
+        "Exemple : remercier, valoriser le point positif, dire que la remarque aide à progresser."
     },
     {
       key: "positiveReply1",
       label: "Avis positif",
       rating: 5,
       text: `Très bonne expérience, j'ai particulièrement apprécié ${strengths[0]} et l'accueil de l'équipe.`,
-      defaultAnswer:
-        "Remercier chaleureusement, mentionner naturellement le détail positif si cela sonne juste, dire que l'équipe est ravie, et inviter à revenir sans insister."
+      placeholder:
+        "Exemple : remercier chaleureusement, citer le détail positif si naturel, inviter à revenir sans insister."
     }
   ];
 }
 
-function defaultBusinessAliases(client) {
-  return [client.businessName, "notre équipe", "notre établissement", "notre commerce"].join("\n");
+function exampleBusinessAliases(client) {
+  return `Exemple : ${client.businessName}, notre équipe, la boutique, l'établissement`;
 }
 
-function defaultClaimedStrengths(audit) {
+function exampleClaimedStrengths(audit) {
   const strengths = audit?.strengths?.length ? audit.strengths : ["l'accueil", "la qualité du service", "les conseils"];
-  return strengths.slice(0, 5).join("\n");
+  return `Exemple : ${strengths.slice(0, 4).join(", ")}`;
 }
 
-function defaultKnownConstraints(audit) {
+function exampleKnownConstraints(audit) {
   const weaknesses = audit?.weaknesses?.length ? audit.weaknesses : ["affluence à certaines heures", "délais d'attente possibles"];
-  return weaknesses.slice(0, 4).join("\n");
+  return `Exemple : ${weaknesses.slice(0, 3).join(", ")}`;
 }
 
-function defaultExtraGuidelines() {
-  return [
-    "Répondre avec une orthographe impeccable.",
-    "Ne jamais inventer de détail absent de l'avis.",
-    "Ne pas promettre de remboursement, geste commercial ou compensation.",
-    "Adapter l'intensité de la réponse à la note et au contenu de l'avis.",
-    "Varier les formulations pour éviter les réponses répétitives."
-  ].join("\n");
+function clientMainTabs(activeTab, reviews, client, googleStatus) {
+  const pendingReviews = reviews.filter((review) => review.status === "pending");
+  const tabs = [
+    { id: "reviews", label: "Avis à valider" },
+    { id: "profile", label: "Profil IA" }
+  ];
+  return `
+    <div class="client-tabs">
+      <div class="tab-list" role="tablist" aria-label="Espace client">
+        ${tabs
+          .map(
+            (tab) => `
+              <button
+                type="button"
+                class="tab-button ${activeTab === tab.id ? "selected" : ""}"
+                data-client-tab="${tab.id}"
+                role="tab"
+                aria-selected="${activeTab === tab.id ? "true" : "false"}"
+              >${tab.label}</button>
+            `
+          )
+          .join("")}
+      </div>
+      <div class="tab-panel">
+        ${
+          activeTab === "profile"
+            ? clientReplyProfilePanel(client, googleStatus)
+            : pendingReviews.map((review) => reviewCard(review, "client")).join("") || "<p class='muted empty-state'>Aucun avis en attente.</p>"
+        }
+      </div>
+    </div>
+  `;
 }
 
 function clientReplyProfilePanel(client, googleStatus) {
@@ -787,113 +818,122 @@ function replyAuditSummary(audit) {
 
 function replyQuestionnaire(client, audit) {
   const ghostReviews = questionnaireGhostReviews(audit, client);
+  const answers = replyProfileState.answers || {};
+  const selected = (name, value) => (answers[name] === value ? "selected" : "");
   return `
-    <details class="compact-settings questionnaire-drawer" ${audit ? "open" : ""}>
-      <summary>Questionnaire de ton</summary>
+    <details class="compact-settings questionnaire-drawer" open>
+      <summary>Questionnaire de personnalisation</summary>
       <form id="reply-profile-form">
-        <div class="settings-grid">
-          <div class="settings-group wide">
-            <h3>Profil du commerce</h3>
-            <p class="muted">Ces informations aident l'IA à parler comme une personne qui comprend réellement votre activité.</p>
-            <div class="form-grid">
-              <label>Type d'activité
-                <select name="businessType">
-                  <option value="commerce de proximité">Commerce de proximité</option>
-                  <option value="restaurant">Restaurant</option>
-                  <option value="hôtel ou hébergement">Hôtel ou hébergement</option>
-                  <option value="artisan ou créateur">Artisan ou créateur</option>
-                  <option value="chocolatier, boulangerie ou métier de bouche">Chocolatier, boulangerie ou métier de bouche</option>
-                  <option value="jardinerie, pépinière ou commerce végétal">Jardinerie, pépinière ou commerce végétal</option>
-                  <option value="service local">Service local</option>
-                  <option value="autre activité locale">Autre activité locale</option>
-                </select>
-              </label>
-              <label>Précision métier
-                <input name="businessTypeDetail" placeholder="Ex : pépinière familiale, restaurant italien, institut premium..." />
-              </label>
-              <label>Taille de la structure
-                <select name="companySize">
-                  <option value="indépendant ou très petite équipe">Indépendant ou très petite équipe</option>
-                  <option value="petite équipe locale">Petite équipe locale</option>
-                  <option value="PME structurée">PME structurée</option>
-                  <option value="plusieurs établissements">Plusieurs établissements</option>
-                </select>
-              </label>
-              <label>Nombre d'employés
-                <input name="employeeCount" placeholder="Ex : 1, 4, 12, 30..." />
-              </label>
-              <label>Nombre d'établissements
-                <input name="locationCount" placeholder="Ex : 1 boutique, 2 restaurants, 4 agences..." />
-              </label>
-              <label>Équipe en contact client
-                <input name="customerFacingTeam" placeholder="Ex : accueil, vendeurs, serveurs, commerciaux, réception..." />
-              </label>
-              <label>Type de clientèle
-                <textarea name="customerTypes">Clients locaux, habitués, familles, visiteurs de passage et nouveaux clients qui découvrent l'établissement.</textarea>
-              </label>
-              <label>Positionnement du commerce
-                <textarea name="positioning">Accueil humain, service professionnel, expérience simple, fiable et agréable.</textarea>
-              </label>
-              <label>Points forts revendiqués
-                <textarea name="claimedStrengths">${escapeTextarea(defaultClaimedStrengths(audit))}</textarea>
-              </label>
-              <label>Contraintes ou réalités du terrain
-                <textarea name="operationalConstraints">${escapeTextarea(defaultKnownConstraints(audit))}</textarea>
-              </label>
-            </div>
-          </div>
-          <div class="settings-group">
-            <h3>Identité et vocabulaire</h3>
-            <label>Quels noms peut-on utiliser pour parler de votre commerce ?
-              <textarea name="businessAliases" placeholder="Ex : la jardinerie, le magasin, notre équipe, nos rayons...">${escapeTextarea(defaultBusinessAliases(client))}</textarea>
-            </label>
-            <label>Quel ton souhaitez-vous ?
-              <select name="tone">
-                <option value="humain, chaleureux, professionnel et naturel">Humain, chaleureux, professionnel</option>
-                <option value="simple, direct, calme et très professionnel">Simple, direct, calme</option>
-                <option value="très chaleureux, proche et naturel">Très chaleureux et proche</option>
+        <div class="questionnaire-form">
+          <section class="question-chapter">
+            <h3>1. Votre commerce</h3>
+            <label class="question-row">Votre activité principale
+              <select name="businessType">
+                <option value="commerce de proximité">Commerce de proximité</option>
+                <option value="restaurant" ${selected("businessType", "restaurant")}>Restaurant</option>
+                <option value="hôtel ou hébergement" ${selected("businessType", "hôtel ou hébergement")}>Hôtel ou hébergement</option>
+                <option value="artisan ou créateur" ${selected("businessType", "artisan ou créateur")}>Artisan ou créateur</option>
+                <option value="chocolatier, boulangerie ou métier de bouche" ${selected("businessType", "chocolatier, boulangerie ou métier de bouche")}>Chocolatier, boulangerie ou métier de bouche</option>
+                <option value="jardinerie, pépinière ou commerce végétal" ${selected("businessType", "jardinerie, pépinière ou commerce végétal")}>Jardinerie, pépinière ou commerce végétal</option>
+                <option value="service local" ${selected("businessType", "service local")}>Service local</option>
+                <option value="autre activité locale" ${selected("businessType", "autre activité locale")}>Autre activité locale</option>
               </select>
             </label>
-            <label>Émojis
-              <input name="emojiPolicy" value="Sobres, surtout dans les avis positifs ou neutres, jamais automatiques." />
+            <label class="question-row">Votre métier en quelques mots
+              <input name="businessTypeDetail" value="${escapeAttribute(answers.businessTypeDetail || "")}" placeholder="Exemple : pépinière familiale, restaurant italien, chocolatier artisanal" />
             </label>
-          </div>
-          <div class="settings-group">
-            <h3>Faiblesses connues</h3>
-            <label>Y a-t-il un point faible connu que vous voulez expliquer à l'IA ?
-              <textarea name="knownWeakness" placeholder="Ex : l'attente peut être longue le samedi, l'équipe est réduite en haute saison..."></textarea>
+            <label class="question-row">Taille de votre structure
+              <select name="companySize">
+                <option value="indépendant ou très petite équipe" ${selected("companySize", "indépendant ou très petite équipe")}>Indépendant ou très petite équipe</option>
+                <option value="petite équipe locale" ${selected("companySize", "petite équipe locale")}>Petite équipe locale</option>
+                <option value="PME structurée" ${selected("companySize", "PME structurée")}>PME structurée</option>
+                <option value="plusieurs établissements" ${selected("companySize", "plusieurs établissements")}>Plusieurs établissements</option>
+              </select>
             </label>
-            <label>Que voulez-vous dire aux clients quand ce sujet revient ?
-              <textarea name="weaknessContext" placeholder="Expliquez simplement la réalité du terrain, sans écrire une réponse complète."></textarea>
+            <label class="question-row">Combien de personnes et de lieux ?
+              <input name="structureDetails" value="${escapeAttribute(answers.structureDetails || "")}" placeholder="Exemple : 4 personnes, 1 boutique / 18 salariés, 3 agences" />
             </label>
-          </div>
-          <div class="settings-group wide">
-            <h3>Formules et limites</h3>
-            <label>Formules à éviter
-              <textarea name="mustAvoid" placeholder="Ex : Votre satisfaction est notre priorité, réponses trop corporate, promesses de remboursement...">Votre satisfaction est notre priorité. Toute formule trop froide, trop commerciale ou trop automatique.</textarea>
+            <label class="question-row">Qui est en contact avec les clients ?
+              <input name="customerFacingTeam" value="${escapeAttribute(answers.customerFacingTeam || "")}" placeholder="Exemple : moi-même, vendeurs, serveurs, réception, commerciaux" />
             </label>
-            <label>Consignes spécifiques
-              <textarea name="extraGuidelines" placeholder="Ex : ne pas parler de compensation, proposer un appel uniquement pour les avis très négatifs...">${escapeTextarea(defaultExtraGuidelines())}</textarea>
+            <label class="question-row">Votre clientèle principale
+              <input name="customerTypes" value="${escapeAttribute(answers.customerTypes || "")}" placeholder="Exemple : habitués du quartier, familles, touristes, professionnels" />
             </label>
-          </div>
-        </div>
-        <div class="ghost-review-grid">
-          ${ghostReviews
-            .map(
-              (review) => `
-                <div class="ghost-review">
-                  <span>${review.label} · ${review.rating}/5</span>
-                  <p>${escapeHtml(review.text)}</p>
-                  <label>Comment aimeriez-vous répondre ?
-                    <textarea name="${review.key}" placeholder="Écrivez l'intention, le ton, ou une réponse exemple.">${escapeTextarea(review.defaultAnswer)}</textarea>
-                  </label>
-                </div>
-              `
-            )
-            .join("")}
+          </section>
+
+          <section class="question-chapter">
+            <h3>2. Votre façon de parler</h3>
+            <label class="question-row">Quels mots Notori peut utiliser pour parler de vous ?
+              <textarea name="businessAliases" placeholder="${escapeAttribute(exampleBusinessAliases(client))}">${escapeTextarea(answers.businessAliases || "")}</textarea>
+            </label>
+            <label class="question-row">Quels mots ou expressions faut-il éviter ?
+              <input name="mustAvoid" value="${escapeAttribute(answers.mustAvoid || "")}" placeholder="Exemple : votre satisfaction est notre priorité, formules trop commerciales" />
+            </label>
+            <label class="question-row">Le ton idéal
+              <select name="tone">
+                <option value="humain, chaleureux, professionnel et naturel" ${selected("tone", "humain, chaleureux, professionnel et naturel")}>Humain, chaleureux, professionnel</option>
+                <option value="simple, direct, calme et très professionnel" ${selected("tone", "simple, direct, calme et très professionnel")}>Simple, direct, calme</option>
+                <option value="très chaleureux, proche et naturel" ${selected("tone", "très chaleureux, proche et naturel")}>Très chaleureux et proche</option>
+                <option value="premium, sobre, attentionné et précis" ${selected("tone", "premium, sobre, attentionné et précis")}>Premium, sobre et attentionné</option>
+              </select>
+            </label>
+            <label class="question-row">En 3 mots, comment doivent sonner vos réponses ?
+              <input name="styleWords" value="${escapeAttribute(answers.styleWords || "")}" placeholder="Exemple : naturel, souriant, professionnel" />
+            </label>
+            <label class="question-row">Émojis
+              <select name="emojiPolicy">
+                <option value="Sobres, surtout dans les avis positifs ou neutres, jamais automatiques." ${selected("emojiPolicy", "Sobres, surtout dans les avis positifs ou neutres, jamais automatiques.")}>Sobres, parfois sur les avis positifs</option>
+                <option value="Aucun emoji." ${selected("emojiPolicy", "Aucun emoji.")}>Aucun emoji</option>
+                <option value="Émojis chaleureux autorisés si le message s'y prête, sans excès." ${selected("emojiPolicy", "Émojis chaleureux autorisés si le message s'y prête, sans excès.")}>Oui, avec naturel</option>
+              </select>
+            </label>
+            <label class="question-row">Longueur des réponses
+              <select name="responseLength">
+                <option value="2 à 4 phrases maximum" ${selected("responseLength", "2 à 4 phrases maximum")}>Courte : 2 à 4 phrases</option>
+                <option value="1 à 2 phrases maximum" ${selected("responseLength", "1 à 2 phrases maximum")}>Très courte : 1 à 2 phrases</option>
+                <option value="3 à 5 phrases maximum si l'avis est détaillé" ${selected("responseLength", "3 à 5 phrases maximum si l'avis est détaillé")}>Un peu plus détaillée si nécessaire</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="question-chapter">
+            <h3>3. Ce qu'il faut valoriser ou protéger</h3>
+            <label class="question-row">Vos 3 points forts
+              <textarea name="claimedStrengths" placeholder="${escapeAttribute(exampleClaimedStrengths(audit))}">${escapeTextarea(answers.claimedStrengths || "")}</textarea>
+            </label>
+            <label class="question-row">Un point faible connu ?
+              <textarea name="knownWeakness" placeholder="${escapeAttribute(exampleKnownConstraints(audit))}">${escapeTextarea(answers.knownWeakness || "")}</textarea>
+            </label>
+            <label class="question-row">Quand ce point revient, que voulez-vous faire comprendre ?
+              <textarea name="weaknessContext" placeholder="Exemple : nous faisons au mieux sur les périodes chargées, sans promettre de solution impossible">${escapeTextarea(answers.weaknessContext || "")}</textarea>
+            </label>
+            <label class="question-row">Ce que Notori ne doit jamais promettre
+              <input name="forbiddenPromises" value="${escapeAttribute(answers.forbiddenPromises || "")}" placeholder="Exemple : remboursement, geste commercial, rappel immédiat" />
+            </label>
+          </section>
+
+          <section class="question-chapter">
+            <h3>4. Réactions souhaitées sur des avis types</h3>
+            <p class="muted">Répondez en intention courte. Une phrase suffit.</p>
+            <div class="ghost-review-grid">
+              ${ghostReviews
+                .map(
+                  (review) => `
+                    <div class="ghost-review">
+                      <span>${review.label} · ${review.rating}/5</span>
+                      <p>${escapeHtml(review.text)}</p>
+                      <label>Votre intention
+                        <textarea name="${review.key}" placeholder="${escapeAttribute(review.placeholder)}">${escapeTextarea(answers[review.key] || "")}</textarea>
+                      </label>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          </section>
         </div>
         <div class="actions">
-          <button type="submit">${replyProfileState.profile ? "Regénérer le prompt" : "Générer le prompt"}</button>
+          <button type="submit">${replyProfileState.profile ? "Régénérer le prompt" : "Générer le prompt"}</button>
         </div>
       </form>
     </details>
@@ -902,10 +942,10 @@ function replyQuestionnaire(client, audit) {
 
 function replyProfileResult(profile) {
   return `
-    <div class="profile-result">
-      <h3>Synthèse proposée</h3>
+    <details class="profile-result" open>
+      <summary>Prompt</summary>
       <p class="muted">${escapeHtml(profile.summary || "")}</p>
-      <label>Prompt final proposé
+      <label>Prompt final proposé, modifiable librement
         <textarea id="reply-profile-prompt" class="large-textarea">${escapeTextarea(profile.prompt || "")}</textarea>
       </label>
       <div class="calibration-list">
@@ -916,7 +956,7 @@ function replyProfileResult(profile) {
       <div class="actions">
         <button data-save-reply-profile>Valider ce profil IA</button>
       </div>
-    </div>
+    </details>
   `;
 }
 
@@ -1005,11 +1045,16 @@ async function renderClient() {
         ${clientPasswordPanel(me.client)}
       </aside>
       <section>
-        ${clientReplyProfilePanel(me.client, googleStatus)}
-        ${reviews.filter((review) => review.status === "pending").map((review) => reviewCard(review, "client")).join("") || "<p class='muted'>Aucun avis en attente.</p>"}
+        ${clientMainTabs(clientActiveTab, reviews, me.client, googleStatus)}
       </section>
     </div>
   `, "Votre espace de validation");
+  document.querySelectorAll("[data-client-tab]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      clientActiveTab = button.dataset.clientTab || "reviews";
+      await renderClient();
+    });
+  });
   document.querySelector("[data-run-profile-audit]")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
     try {
@@ -1034,11 +1079,13 @@ async function renderClient() {
     try {
       button.disabled = true;
       button.textContent = "Génération...";
+      const answers = collectReplyProfileAnswers(event.currentTarget);
+      replyProfileState.answers = answers;
       const result = await api("/api/client/reply-profile/generate", {
         method: "POST",
         body: {
           audit: replyProfileState.audit,
-          answers: collectReplyProfileAnswers(event.currentTarget)
+          answers
         }
       });
       replyProfileState.profile = {

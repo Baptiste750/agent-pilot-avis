@@ -87,7 +87,7 @@ Sans clé OpenAI, l'application continue de fonctionner avec une génération lo
 Pour activer la vraie génération IA :
 
 ```bash
-OPENAI_API_KEY="votre-cle" OPENAI_MODEL="gpt-4.1-mini" npm start
+OPENAI_API_KEY="votre-cle" npm start
 ```
 
 La réponse est générée à partir :
@@ -96,6 +96,13 @@ La réponse est générée à partir :
 - de la note ;
 - du nom du commerce ;
 - du prompt personnalisé du client.
+
+Par défaut, Notori optimise les modèles selon la tâche :
+
+- `OPENAI_ONBOARDING_MODEL=gpt-5.6-sol` pour l'audit des 100 derniers avis et la création du prompt client ;
+- `OPENAI_REPLY_MODEL=gpt-5.6-terra` pour les réponses courantes ;
+- `OPENAI_SIMPLE_REPLY_MODEL=gpt-5.6-luna` pour les avis 5 étoiles simples ou sans commentaire ;
+- `OPENAI_SENSITIVE_REPLY_MODEL=gpt-5.6-terra` pour les avis négatifs, longs, agressifs ou sensibles. Passez cette variable à `gpt-5.6-sol` pour une qualité premium sur les cas délicats.
 
 ## Activer l'envoi Gmail
 

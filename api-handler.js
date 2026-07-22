@@ -6,7 +6,10 @@ const PORT = Number(process.env.PORT || 4173);
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@agentpilotavis.local";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+const OPENAI_ONBOARDING_MODEL = process.env.OPENAI_ONBOARDING_MODEL || "gpt-5.6-sol";
+const OPENAI_REPLY_MODEL = process.env.OPENAI_REPLY_MODEL || "gpt-5.6-terra";
+const OPENAI_SIMPLE_REPLY_MODEL = process.env.OPENAI_SIMPLE_REPLY_MODEL || "gpt-5.6-luna";
+const OPENAI_SENSITIVE_REPLY_MODEL = process.env.OPENAI_SENSITIVE_REPLY_MODEL || OPENAI_REPLY_MODEL;
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_USER = process.env.SMTP_USER || "";
@@ -557,7 +560,7 @@ async function buildAudit(client, reviews) {
         authorization: `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: OPENAI_ONBOARDING_MODEL,
         input: prompt,
         temperature: 0.2,
         max_output_tokens: 1200
@@ -706,7 +709,7 @@ async function generateReplyProfile(client, audit, answers = {}) {
         authorization: `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: OPENAI_ONBOARDING_MODEL,
         input,
         temperature: 0.35,
         max_output_tokens: 3500
@@ -734,6 +737,7 @@ async function generateSampleReply(client, prompt, review) {
   if (!OPENAI_API_KEY) {
     return suggestReply(review.text || "", Number(review.rating || 5), prompt || client.replyPolicy || "");
   }
+  const route = selectReplyModel(review);
 
   const input = [
     `Commerce : ${client.businessName}`,
@@ -754,7 +758,7 @@ async function generateSampleReply(client, prompt, review) {
         authorization: `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: route.model,
         input,
         temperature: 0.35,
         max_output_tokens: 350
@@ -1284,7 +1288,8 @@ async function generateSuggestedReply(client, review) {
     return suggestReply(review.text || "", Number(review.rating || 5), client?.replyPolicy || "");
   }
 
-  const sensitiveWarning = detectSensitiveReview(review.text || "")
+  const route = selectReplyModel(review);
+  const sensitiveWarning = route.level === "sensitive"
     ? "\n\nAttention : cet avis semble sensible. La réponse doit rester très prudente et mentionner qu'une vérification humaine est nécessaire."
     : "";
 
@@ -1309,7 +1314,7 @@ async function generateSuggestedReply(client, review) {
         authorization: `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: route.model,
         input: prompt,
         temperature: 0.4,
         max_output_tokens: 350
@@ -1343,8 +1348,31 @@ function extractOpenAIText(data) {
   return chunks.join("\n").trim();
 }
 
-function detectSensitiveReview(text) {
-  const lower = text.toLowerCase();
+function selectReplyModel(review = {}) {
+  const level = classifyReviewDifficulty(review);
+  return {
+    level,
+    model:
+      level === "simple"
+        ? OPENAI_SIMPLE_REPLY_MODEL
+        : level === "sensitive"
+          ? OPENAI_SENSITIVE_REPLY_MODEL
+          : OPENAI_REPLY_MODEL
+  };
+}
+
+function classifyReviewDifficulty(review = {}) {
+  const rating = Number(review.rating || 5);
+  const text = String(review.text || "").trim();
+  const wordCount = text ? text.split(/\s+/).length : 0;
+  const simplePositive = rating === 5 && wordCount <= 10 && !detectSensitiveReview(text) && !detectComplaintReview(text);
+  if (simplePositive) return "simple";
+  if (rating <= 3 || wordCount >= 65 || text.length >= 450 || detectSensitiveReview(text) || detectAggressiveReview(text)) return "sensitive";
+  return "standard";
+}
+
+function detectSensitiveReview(text = "") {
+  const lower = String(text).toLowerCase();
   return [
     "intoxication",
     "malade",
@@ -1358,6 +1386,40 @@ function detectSensitiveReview(text) {
     "agression",
     "harcèlement",
     "insulte"
+  ].some((word) => lower.includes(word));
+}
+
+function detectAggressiveReview(text = "") {
+  const lower = String(text).toLowerCase();
+  return [
+    "arnaque",
+    "catastrophe",
+    "honteux",
+    "inacceptable",
+    "fuyez",
+    "à éviter",
+    "a eviter",
+    "jamais plus",
+    "nul",
+    "escroc",
+    "menteur"
+  ].some((word) => lower.includes(word));
+}
+
+function detectComplaintReview(text = "") {
+  const lower = String(text).toLowerCase();
+  return [
+    "attente",
+    "déçu",
+    "decu",
+    "problème",
+    "probleme",
+    "erreur",
+    "cher",
+    "caisse",
+    "accueil",
+    "rembourse",
+    "mauvais"
   ].some((word) => lower.includes(word));
 }
 

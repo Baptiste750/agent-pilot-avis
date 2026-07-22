@@ -103,7 +103,10 @@ Le prompt devra utiliser :
 Variables nécessaires :
 
 - `OPENAI_API_KEY`
-- `OPENAI_MODEL`
+- `OPENAI_ONBOARDING_MODEL`
+- `OPENAI_REPLY_MODEL`
+- `OPENAI_SIMPLE_REPLY_MODEL`
+- `OPENAI_SENSITIVE_REPLY_MODEL`
 
 ## Étape 5 - Google Business Profile
 

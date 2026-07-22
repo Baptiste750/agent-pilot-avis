@@ -23,6 +23,56 @@ const GOOGLE_SCOPE = "https://www.googleapis.com/auth/business.manage https://ww
 const DEFAULT_EMAIL_SUBJECT_TEMPLATE = "Vos réponses aux avis Google sont prêtes - {{businessName}}";
 const DEFAULT_EMAIL_BODY_TEMPLATE =
   "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori";
+const LEGAL_DOCUMENT_VERSION = "2026-07-22";
+
+function legalDocuments() {
+  return {
+    version: LEGAL_DOCUMENT_VERSION,
+    updatedAt: "2026-07-22",
+    title: "Documents légaux Notori",
+    intro:
+      "Ces documents encadrent l'utilisation de Notori en version bêta. Ils devront être relus et complétés avant commercialisation, notamment avec les informations légales définitives de l'éditeur.",
+    sections: [
+      {
+        title: "Mentions légales",
+        paragraphs: [
+          "Notori est un service d'aide à la gestion et à la rédaction de réponses aux avis clients publiés sur des plateformes tierces, notamment Google Business Profile.",
+          "Éditeur du service : Notori / Baptiste Vincent. Les informations complètes d'identification légale, adresse, immatriculation, directeur de publication et coordonnées de contact devront être complétées avant la mise en commercialisation.",
+          "Hébergement : Vercel Inc. pour l'application web et Supabase pour le stockage des données applicatives lorsque le mode en ligne est activé.",
+          "Les marques Google, Google Business Profile et Trustpilot appartiennent à leurs titulaires respectifs. Notori n'est pas affilié à Google ou Trustpilot."
+        ]
+      },
+      {
+        title: "Conditions générales d'utilisation",
+        paragraphs: [
+          "Le client utilise Notori pour consulter des avis, générer des propositions de réponses assistées par intelligence artificielle, modifier ces réponses et décider de leur publication.",
+          "Les réponses générées par Notori sont des propositions. Le client reste seul responsable de leur relecture, de leur validation, de leur publication et de leur conformité avec son activité, son image, ses obligations professionnelles et les règles des plateformes concernées.",
+          "Le client s'engage à ne pas utiliser Notori pour publier des contenus illicites, trompeurs, discriminatoires, insultants, confidentiels ou contraires aux règles des plateformes d'avis.",
+          "Notori peut être interrompu temporairement pour maintenance, évolution technique ou incident lié aux services tiers utilisés, notamment Google, OpenAI, Vercel, Supabase ou Gmail.",
+          "L'accès au service peut être suspendu en cas de non-paiement, d'usage abusif, de risque de sécurité ou de demande explicite du client."
+        ]
+      },
+      {
+        title: "Données personnelles et confidentialité",
+        paragraphs: [
+          "Notori traite les informations nécessaires au fonctionnement du service : identité du commerce, coordonnées du contact client, accès de connexion, avis synchronisés, réponses proposées, réponses validées, historique d'envoi email et traces d'acceptation des documents légaux.",
+          "Les données sont utilisées pour fournir le service, générer des réponses, envoyer les emails de relance, assurer la sécurité de l'accès et conserver une preuve d'acceptation des conditions.",
+          "Certaines données peuvent être transmises à des prestataires techniques strictement nécessaires au service, notamment OpenAI pour la génération de texte, Google pour l'accès aux avis, Vercel pour l'hébergement, Supabase pour le stockage et Gmail/SMTP pour l'envoi d'emails.",
+          "Le client peut demander l'accès, la rectification ou la suppression des données le concernant, dans les limites nécessaires à la preuve contractuelle, à la sécurité et au respect des obligations légales.",
+          "Notori ne doit pas être utilisé pour traiter des données sensibles ou confidentielles dans les réponses aux avis. Le client doit supprimer ou éviter toute information personnelle non nécessaire avant publication."
+        ]
+      },
+      {
+        title: "Avertissement IA",
+        paragraphs: [
+          "Les modèles d'intelligence artificielle peuvent produire des erreurs, des approximations ou des formulations inadaptées au contexte réel du commerce.",
+          "Le client doit relire chaque réponse avant publication, en particulier les avis négatifs, agressifs, sensibles, juridiques, médicaux, discriminatoires ou impliquant une réclamation commerciale.",
+          "Notori ne remplace pas un conseil juridique, commercial, comptable ou professionnel. Les décisions de réponse et de publication restent sous la responsabilité du client."
+        ]
+      }
+    ]
+  };
+}
 
 function getMockGoogleReviews() {
   return [
@@ -121,7 +171,7 @@ async function readBody(req) {
   return raw ? JSON.parse(raw) : {};
 }
 
-function publicClient(client) {
+function publicClient(client, db = null) {
   if (!client) return null;
   return {
     id: client.id,
@@ -133,8 +183,68 @@ function publicClient(client) {
     syncFromDate: client.syncFromDate,
     replyPolicy: client.replyPolicy,
     emailTemplate: client.emailTemplate,
+    legalAcceptance: db ? latestLegalAcceptance(db, client.id) : null,
     createdAt: client.createdAt
   };
+}
+
+function latestLegalAcceptance(db, clientId) {
+  const log = (db.emailLogs || [])
+    .filter((emailLog) => emailLog.clientId === clientId && emailLog.status === "legal_accepted")
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+  if (!log) return null;
+  try {
+    const parsed = JSON.parse(log.body || "{}");
+    return {
+      version: parsed.version || "",
+      acceptedAt: parsed.acceptedAt || log.createdAt,
+      ip: parsed.ip || "",
+      userAgent: parsed.userAgent || "",
+      logId: log.id
+    };
+  } catch {
+    return {
+      version: "",
+      acceptedAt: log.createdAt,
+      ip: "",
+      userAgent: "",
+      logId: log.id
+    };
+  }
+}
+
+function hasAcceptedCurrentLegal(db, clientId) {
+  return latestLegalAcceptance(db, clientId)?.version === LEGAL_DOCUMENT_VERSION;
+}
+
+function getRequestIp(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "")
+    .split(",")[0]
+    .trim();
+}
+
+function recordLegalAcceptance(db, client, req) {
+  const acceptedAt = new Date().toISOString();
+  const payload = {
+    version: LEGAL_DOCUMENT_VERSION,
+    acceptedAt,
+    ip: getRequestIp(req),
+    userAgent: req.headers["user-agent"] || "",
+    clientId: client.id,
+    clientEmail: client.email,
+    businessName: client.businessName
+  };
+  db.emailLogs.push({
+    id: `legal_${randomBytes(8).toString("hex")}`,
+    clientId: client.id,
+    to: client.email,
+    subject: `Acceptation documents légaux Notori ${LEGAL_DOCUMENT_VERSION}`,
+    body: JSON.stringify(payload, null, 2),
+    status: "legal_accepted",
+    createdAt: acceptedAt,
+    sentAt: acceptedAt
+  });
+  return payload;
 }
 
 function canAccessClient(session, clientId) {
@@ -775,6 +885,11 @@ async function generateSampleReply(client, prompt, review) {
 export async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
+  if (url.pathname === "/api/legal" && req.method === "GET") {
+    json(res, 200, legalDocuments());
+    return;
+  }
+
   if (url.pathname === "/api/login" && req.method === "POST") {
     const body = await readBody(req);
     if (body.email === ADMIN_EMAIL && body.password === ADMIN_PASSWORD) {
@@ -934,7 +1049,24 @@ export async function handleApi(req, res) {
       json(res, 401, { error: "Session client expirée." });
       return;
     }
-    json(res, 200, { role: "client", client: publicClient(client) });
+    json(res, 200, { role: "client", client: publicClient(client, db) });
+    return;
+  }
+
+  if (url.pathname === "/api/client/legal-acceptance" && req.method === "POST") {
+    if (session.role !== "client") return json(res, 403, { error: "Accès refusé." });
+    const body = await readBody(req);
+    if (body.version !== LEGAL_DOCUMENT_VERSION) {
+      return json(res, 400, { error: "La version des documents légaux n'est pas à jour. Rechargez la page." });
+    }
+    if (!body.accepted) {
+      return json(res, 400, { error: "Vous devez accepter les documents légaux pour utiliser Notori." });
+    }
+    const client = db.clients.find((item) => item.id === session.userId);
+    if (!client) return json(res, 404, { error: "Client introuvable." });
+    const acceptance = hasAcceptedCurrentLegal(db, client.id) ? latestLegalAcceptance(db, client.id) : recordLegalAcceptance(db, client, req);
+    await saveDb(db);
+    json(res, 200, { acceptance, client: publicClient(client, db) });
     return;
   }
 
@@ -945,7 +1077,7 @@ export async function handleApi(req, res) {
     if (!client) return json(res, 404, { error: "Client introuvable." });
     client.googleLocationId = body.googleLocationId || "";
     await saveDb(db);
-    json(res, 200, { client: publicClient(client) });
+    json(res, 200, { client: publicClient(client, db) });
     return;
   }
 
@@ -1015,7 +1147,7 @@ export async function handleApi(req, res) {
     if (prompt.length < 200) return json(res, 400, { error: "Le prompt final est trop court pour être enregistré." });
     client.replyPolicy = prompt;
     await saveDb(db);
-    json(res, 200, { client: publicClient(client) });
+    json(res, 200, { client: publicClient(client, db) });
     return;
   }
 
@@ -1023,7 +1155,7 @@ export async function handleApi(req, res) {
     if (session.role !== "admin") return json(res, 403, { error: "Accès refusé." });
 
     if (req.method === "GET") {
-      json(res, 200, { clients: db.clients.map(publicClient) });
+      json(res, 200, { clients: db.clients.map((client) => publicClient(client, db)) });
       return;
     }
 
@@ -1061,7 +1193,7 @@ export async function handleApi(req, res) {
       };
       db.clients.push(client);
       await saveDb(db);
-      json(res, 201, { client: publicClient(client) });
+      json(res, 201, { client: publicClient(client, db) });
       return;
     }
   }
@@ -1103,7 +1235,7 @@ export async function handleApi(req, res) {
     if (body.replyPolicy !== undefined) client.replyPolicy = body.replyPolicy;
     if (body.emailTemplate !== undefined) client.emailTemplate = body.emailTemplate;
     await saveDb(db);
-    json(res, 200, { client: publicClient(client) });
+    json(res, 200, { client: publicClient(client, db) });
     return;
   }
 
@@ -1169,10 +1301,14 @@ export async function handleApi(req, res) {
     if (session.role !== "admin") return json(res, 403, { error: "Accès refusé." });
     const clientId = url.pathname.split("/").at(-1);
     const emailLogs = db.emailLogs
-      .filter((emailLog) => emailLog.clientId === clientId)
+      .filter((emailLog) => emailLog.clientId === clientId && emailLog.status !== "legal_accepted")
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, 10);
-    json(res, 200, { emailLogs, smtpConfigured: isSmtpConfigured() });
+    const legalAcceptances = db.emailLogs
+      .filter((emailLog) => emailLog.clientId === clientId && emailLog.status === "legal_accepted")
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 10);
+    json(res, 200, { emailLogs, legalAcceptances, smtpConfigured: isSmtpConfigured() });
     return;
   }
 

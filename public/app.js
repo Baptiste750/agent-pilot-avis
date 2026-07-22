@@ -136,6 +136,10 @@ function escapeAttribute(value) {
   return escapeHtml(value).replaceAll("\n", " ");
 }
 
+function isCurrentLegalAccepted(client, legal) {
+  return Boolean(client?.legalAcceptance?.version && client.legalAcceptance.version === legal.version);
+}
+
 function showNotice(message, type = "success") {
   const root = document.querySelector("#notice-root");
   if (!root) return;
@@ -414,6 +418,7 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
   const emailSubject = renderEmailText(emailTemplate.subject, client, pending, average, reviews.length);
   const emailBody = renderEmailText(emailTemplate.body, client, pending, average, reviews.length);
   const lastEmail = (emailLogResult.emailLogs || [])[0];
+  const legalAcceptance = client.legalAcceptance || null;
   const nextStatus = client.status === "active" ? "suspended" : "active";
   const statusActionLabel = client.status === "active" ? "Suspendre" : "Réactiver";
   const emailAlreadySent = emailedClientIds.has(client.id);
@@ -458,6 +463,11 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
           <span>${lastEmail ? emailHeadingLabel(lastEmail.status) : "Dernier email"}</span>
           <strong>${lastEmail ? formatLongDateTime(lastEmail.createdAt) : "Aucun envoi"}</strong>
           <p>${lastEmail ? relativeDaysLabel(lastEmail.createdAt) : "Aucune relance n'a encore été envoyée."}</p>
+        </div>
+        <div class="overview-card legal-card">
+          <span>Conformité</span>
+          <strong>${legalAcceptance ? "Accepté" : "À accepter"}</strong>
+          <p>${legalAcceptance ? `Version ${legalAcceptance.version} · ${formatLongDateTime(legalAcceptance.acceptedAt)}` : "Le client acceptera les documents à sa prochaine connexion."}</p>
         </div>
       </div>
     </div>
@@ -545,6 +555,11 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
       </div>
     </details>
     <details class="panel section-details">
+      <summary>Conformité</summary>
+      <p class="muted">Trace backend des acceptations des mentions légales, CGU, données personnelles et avertissements IA.</p>
+      ${legalHistory(emailLogResult.legalAcceptances || [])}
+    </details>
+    <details class="panel section-details">
       <summary>Historique des emails</summary>
       <p class="muted">Les derniers emails envoyés ou simulés pour ce client.</p>
       ${emailHistory(emailLogResult.emailLogs || [])}
@@ -554,6 +569,37 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
       <p class="muted">Utile pour comprendre les corrections du client et affiner le ton des prochaines réponses.</p>
       ${historyReviews.map((review) => reviewCard(review, "history")).join("") || "<p class='muted'>Aucun avis répondu pour le moment.</p>"}
     </details>
+  `;
+}
+
+function parseLegalAcceptanceLog(log) {
+  try {
+    return JSON.parse(log.body || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function legalHistory(logs) {
+  if (!logs.length) return "<p class='muted'>Aucune acceptation enregistrée pour le moment.</p>";
+  return `
+    <div class="timeline">
+      ${logs
+        .map((log) => {
+          const payload = parseLegalAcceptanceLog(log);
+          return `
+            <div class="timeline-item">
+              <div>
+                <strong>Documents acceptés · version ${escapeHtml(payload.version || "non renseignée")}</strong>
+                <p class="muted">${formatDateTime(payload.acceptedAt || log.createdAt)} - ${escapeHtml(payload.clientEmail || log.to || "")}</p>
+                <p>IP : ${escapeHtml(payload.ip || "non renseignée")}</p>
+                <p class="muted">Navigateur : ${escapeHtml(payload.userAgent || "non renseigné")}</p>
+              </div>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
   `;
 }
 
@@ -729,7 +775,7 @@ function exampleKnownConstraints(audit) {
   return `Exemple : ${weaknesses.slice(0, 3).join(", ")}`;
 }
 
-function clientMainTabs(activeTab, reviews, client, googleStatus, googleLocationsResult) {
+function clientMainTabs(activeTab, reviews, client, googleStatus, googleLocationsResult, legal) {
   const pendingReviews = reviews.filter((review) => review.status === "pending");
   const tabs = [
     { id: "reviews", label: "Avis à valider" },
@@ -758,7 +804,7 @@ function clientMainTabs(activeTab, reviews, client, googleStatus, googleLocation
           activeTab === "profile"
             ? clientReplyProfilePanel(client, googleStatus)
             : activeTab === "settings"
-              ? clientSettingsPanel(client, googleStatus, googleLocationsResult)
+              ? clientSettingsPanel(client, googleStatus, googleLocationsResult, legal)
             : pendingReviews.map((review) => reviewCard(review, "client")).join("") || "<p class='muted empty-state'>Aucun avis en attente.</p>"
         }
       </div>
@@ -1034,6 +1080,35 @@ async function renderClient() {
     renderLogin();
     return;
   }
+  const legal = await api("/api/legal");
+  if (!isCurrentLegalAccepted(me.client, legal)) {
+    layout(renderLegalAcceptance(me.client, legal), "Documents légaux et conditions d'utilisation");
+    document.querySelector("#legal-acceptance-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const accepted = form.get("accepted") === "on" && form.get("aiWarning") === "on";
+      if (!accepted) {
+        showNotice("Veuillez cocher les deux cases pour continuer.", "error");
+        return;
+      }
+      const button = event.currentTarget.querySelector("button[type='submit']");
+      try {
+        button.disabled = true;
+        button.textContent = "Enregistrement...";
+        await api("/api/client/legal-acceptance", {
+          method: "POST",
+          body: { version: legal.version, accepted: true }
+        });
+        await renderClient();
+        showNotice("Documents légaux acceptés.");
+      } catch (error) {
+        showNotice(error.message, "error");
+        button.disabled = false;
+        button.textContent = "Accepter et accéder à Notori";
+      }
+    });
+    return;
+  }
   const [{ reviews }, summary, googleStatus] = await Promise.all([
     api("/api/reviews"),
     api(`/api/weekly-summary?clientId=${me.client.id}`),
@@ -1054,7 +1129,7 @@ async function renderClient() {
       <div class="metric"><span class="muted">À traiter</span><strong>${summary.pendingReviews}</strong></div>
       <div class="metric"><span class="muted">Moyenne</span><strong>${summary.averageRating}/5</strong></div>
     </div>
-    ${clientMainTabs(clientActiveTab, reviews, me.client, googleStatus, googleLocationsResult)}
+    ${clientMainTabs(clientActiveTab, reviews, me.client, googleStatus, googleLocationsResult, legal)}
   `, "Votre espace de validation");
   document.querySelectorAll("[data-client-tab]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1224,12 +1299,50 @@ async function renderClient() {
   wireReviewButtons(renderClient);
 }
 
-function clientSettingsPanel(client, googleStatus, googleLocationsResult) {
+function renderLegalAcceptance(client, legal) {
+  return `
+    <div class="legal-gate">
+      <div class="legal-gate-head">
+        <span class="eyebrow">Première connexion</span>
+        <h1>Avant d'utiliser Notori</h1>
+        <p class="muted">Merci de lire et d'accepter les documents ci-dessous pour ${escapeHtml(client.businessName)}. Une trace horodatée sera conservée côté administrateur.</p>
+        <span class="mini-tag">Version ${escapeHtml(legal.version)}</span>
+      </div>
+      <div class="legal-docs">
+        <p class="muted">${escapeHtml(legal.intro || "")}</p>
+        ${(legal.sections || [])
+          .map(
+            (section, index) => `
+              <details class="legal-section" ${index === 0 ? "open" : ""}>
+                <summary>${escapeHtml(section.title)}</summary>
+                ${(section.paragraphs || []).map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}
+              </details>
+            `
+          )
+          .join("")}
+      </div>
+      <form id="legal-acceptance-form" class="legal-acceptance-form">
+        <label class="check-row">
+          <input name="accepted" type="checkbox" required />
+          <span>J'ai lu et j'accepte les mentions légales, les conditions générales d'utilisation et les informations relatives aux données personnelles.</span>
+        </label>
+        <label class="check-row">
+          <input name="aiWarning" type="checkbox" required />
+          <span>Je comprends que les réponses générées par IA sont des propositions à relire avant publication, et que je reste responsable des réponses publiées.</span>
+        </label>
+        <button type="submit">Accepter et accéder à Notori</button>
+      </form>
+    </div>
+  `;
+}
+
+function clientSettingsPanel(client, googleStatus, googleLocationsResult, legal) {
   return `
     <div class="settings-stack">
       ${clientPromptPanel(client)}
       ${clientGooglePanel(googleStatus, googleLocationsResult)}
       ${clientPasswordPanel(client)}
+      ${clientLegalDocumentsPanel(client, legal)}
     </div>
   `;
 }
@@ -1252,6 +1365,35 @@ function clientPromptPanel(client) {
           <button type="submit">Enregistrer le prompt</button>
         </div>
       </form>
+    </div>
+  `;
+}
+
+function clientLegalDocumentsPanel(client, legal) {
+  return `
+    <div class="panel legal-settings-panel">
+      <div class="section-header">
+        <div>
+          <span class="eyebrow">Documents</span>
+          <h2 class="branded-title">Documents légaux</h2>
+          <p class="muted">
+            Acceptés le ${client.legalAcceptance?.acceptedAt ? formatLongDateTime(client.legalAcceptance.acceptedAt) : "non renseigné"}
+            ${client.legalAcceptance?.version ? `· version ${escapeHtml(client.legalAcceptance.version)}` : ""}
+          </p>
+        </div>
+      </div>
+      <div class="legal-docs embedded">
+        ${(legal.sections || [])
+          .map(
+            (section) => `
+              <details class="legal-section">
+                <summary>${escapeHtml(section.title)}</summary>
+                ${(section.paragraphs || []).map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}
+              </details>
+            `
+          )
+          .join("")}
+      </div>
     </div>
   `;
 }

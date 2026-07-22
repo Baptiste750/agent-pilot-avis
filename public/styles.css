@@ -598,12 +598,16 @@ textarea {
 }
 
 .email-card {
-  grid-column: span 8;
+  grid-column: span 4;
 }
 
 .email-card strong {
   font-size: 21px;
   line-height: 1.2;
+}
+
+.legal-card {
+  grid-column: span 4;
 }
 
 button,
@@ -1029,6 +1033,78 @@ button.danger:hover {
   margin-bottom: 6px;
 }
 
+.legal-gate {
+  display: grid;
+  gap: 18px;
+}
+
+.legal-gate-head {
+  max-width: 760px;
+}
+
+.legal-gate-head h1 {
+  margin-bottom: 10px;
+}
+
+.legal-docs,
+.legal-acceptance-form {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.legal-docs {
+  display: grid;
+  gap: 12px;
+}
+
+.legal-docs.embedded {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.legal-section {
+  border-top: 1px solid var(--soft-line);
+  padding-top: 12px;
+}
+
+.legal-section summary {
+  cursor: pointer;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.legal-section p {
+  margin: 12px 0 0;
+  color: #333;
+  line-height: 1.55;
+}
+
+.legal-acceptance-form {
+  display: grid;
+  gap: 12px;
+}
+
+.check-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin: 0;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.check-row input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1152,7 +1228,8 @@ button.danger:hover {
   .access-card,
   .sync-card,
   .focus-card,
-  .email-card {
+  .email-card,
+  .legal-card {
     grid-column: auto;
   }
 
@@ -1253,7 +1330,8 @@ button.danger:hover {
   .settings-stack .actions button,
   .settings-stack .actions .button-link,
   .profile-result .actions button,
-  .questionnaire-drawer .actions button {
+  .questionnaire-drawer .actions button,
+  .legal-acceptance-form button {
     width: 100%;
   }
 
@@ -1263,6 +1341,16 @@ button.danger:hover {
 
   .large-textarea {
     min-height: 260px;
+  }
+
+  .legal-docs,
+  .legal-acceptance-form {
+    padding: 16px;
+    box-shadow: none;
+  }
+
+  .legal-section summary {
+    font-size: 16px;
   }
 }
 

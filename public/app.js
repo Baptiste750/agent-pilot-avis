@@ -729,11 +729,12 @@ function exampleKnownConstraints(audit) {
   return `Exemple : ${weaknesses.slice(0, 3).join(", ")}`;
 }
 
-function clientMainTabs(activeTab, reviews, client, googleStatus) {
+function clientMainTabs(activeTab, reviews, client, googleStatus, googleLocationsResult) {
   const pendingReviews = reviews.filter((review) => review.status === "pending");
   const tabs = [
     { id: "reviews", label: "Avis à valider" },
-    { id: "profile", label: "Profil IA" }
+    { id: "profile", label: "Profil IA" },
+    { id: "settings", label: "Réglages" }
   ];
   return `
     <div class="client-tabs">
@@ -756,6 +757,8 @@ function clientMainTabs(activeTab, reviews, client, googleStatus) {
         ${
           activeTab === "profile"
             ? clientReplyProfilePanel(client, googleStatus)
+            : activeTab === "settings"
+              ? clientSettingsPanel(client, googleStatus, googleLocationsResult)
             : pendingReviews.map((review) => reviewCard(review, "client")).join("") || "<p class='muted empty-state'>Aucun avis en attente.</p>"
         }
       </div>
@@ -766,7 +769,15 @@ function clientMainTabs(activeTab, reviews, client, googleStatus) {
 function clientReplyProfilePanel(client, googleStatus) {
   ensureReplyProfileState(client.id);
   const audit = replyProfileState.audit;
-  const profile = replyProfileState.profile;
+  const profile =
+    replyProfileState.profile ||
+    (client.replyPolicy
+      ? {
+          summary: "Prompt actuellement validé pour ce commerce.",
+          prompt: client.replyPolicy,
+          saved: true
+        }
+      : null);
   return `
     <div class="panel reply-profile-panel">
       <div class="section-header">
@@ -784,7 +795,7 @@ function clientReplyProfilePanel(client, googleStatus) {
       }
       ${audit ? replyAuditSummary(audit) : "<p class='muted empty-state'>Lancez l'audit pour analyser les 100 derniers avis, les étoiles, les réponses propriétaire et les sujets récurrents.</p>"}
       ${replyQuestionnaire(client, audit)}
-      ${profile ? replyProfileResult(profile) : ""}
+      ${profile ? replyProfileResult(profile, Boolean(profile.saved)) : ""}
     </div>
   `;
 }
@@ -940,9 +951,9 @@ function replyQuestionnaire(client, audit) {
   `;
 }
 
-function replyProfileResult(profile) {
+function replyProfileResult(profile, defaultCollapsed = false) {
   return `
-    <details class="profile-result" open>
+    <details class="profile-result" ${defaultCollapsed ? "" : "open"}>
       <summary>Prompt</summary>
       <p class="muted">${escapeHtml(profile.summary || "")}</p>
       <label>Prompt final proposé, modifiable librement
@@ -1032,22 +1043,18 @@ async function renderClient() {
     ? await api("/api/google/locations").catch((error) => ({ locations: [], error: error.message }))
     : { locations: [] };
   layout(`
-    <h1>${me.client.businessName}</h1>
-    <p class="muted">Modifiez les réponses proposées, puis publiez celles qui vous conviennent.</p>
-    <div class="cards">
+    <div class="client-mobile-head">
+      <div>
+        <h1>${me.client.businessName}</h1>
+        <p class="muted">Modifiez les réponses proposées, puis publiez celles qui vous conviennent.</p>
+      </div>
+    </div>
+    <div class="cards client-metrics">
       <div class="metric"><span class="muted">Avis</span><strong>${summary.totalReviews}</strong></div>
       <div class="metric"><span class="muted">À traiter</span><strong>${summary.pendingReviews}</strong></div>
       <div class="metric"><span class="muted">Moyenne</span><strong>${summary.averageRating}/5</strong></div>
     </div>
-    <div class="grid two">
-      <aside>
-        ${clientGooglePanel(googleStatus, googleLocationsResult)}
-        ${clientPasswordPanel(me.client)}
-      </aside>
-      <section>
-        ${clientMainTabs(clientActiveTab, reviews, me.client, googleStatus)}
-      </section>
-    </div>
+    ${clientMainTabs(clientActiveTab, reviews, me.client, googleStatus, googleLocationsResult)}
   `, "Votre espace de validation");
   document.querySelectorAll("[data-client-tab]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1188,7 +1195,65 @@ async function renderClient() {
       showNotice(error.message, "error");
     }
   });
+  document.querySelector("#client-prompt-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button[type='submit']");
+    const prompt = event.currentTarget.querySelector("[name='replyPolicy']")?.value || "";
+    try {
+      button.disabled = true;
+      button.textContent = "Enregistrement...";
+      await api("/api/client/reply-profile", {
+        method: "PATCH",
+        body: { prompt }
+      });
+      replyProfileState.profile = prompt
+        ? {
+            summary: "Prompt actuellement validé pour ce commerce.",
+            prompt,
+            saved: true
+          }
+        : null;
+      await renderClient();
+      showNotice("Prompt IA enregistré.");
+    } catch (error) {
+      showNotice(error.message, "error");
+      button.disabled = false;
+      button.textContent = "Enregistrer le prompt";
+    }
+  });
   wireReviewButtons(renderClient);
+}
+
+function clientSettingsPanel(client, googleStatus, googleLocationsResult) {
+  return `
+    <div class="settings-stack">
+      ${clientPromptPanel(client)}
+      ${clientGooglePanel(googleStatus, googleLocationsResult)}
+      ${clientPasswordPanel(client)}
+    </div>
+  `;
+}
+
+function clientPromptPanel(client) {
+  return `
+    <div class="panel prompt-settings-panel">
+      <div class="section-header">
+        <div>
+          <span class="eyebrow">Réglages</span>
+          <h2 class="branded-title">Prompt IA</h2>
+          <p class="muted">Ce prompt guide Notori pour générer vos réponses. Vous pouvez le consulter ou l'ajuster ici à tout moment.</p>
+        </div>
+      </div>
+      <form id="client-prompt-form">
+        <label>Prompt actuellement validé
+          <textarea name="replyPolicy" class="large-textarea" placeholder="Aucun prompt validé pour le moment. Générez votre profil IA dans l'onglet Profil IA.">${escapeTextarea(client.replyPolicy || "")}</textarea>
+        </label>
+        <div class="actions">
+          <button type="submit">Enregistrer le prompt</button>
+        </div>
+      </form>
+    </div>
+  `;
 }
 
 function clientGooglePanel(status, locationsResult) {

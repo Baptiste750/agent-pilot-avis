@@ -573,6 +573,59 @@ textarea {
   background: #f1f1ec;
 }
 
+.google-account-summary {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 18px;
+  padding: 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: #f7f7f4;
+}
+
+.google-account-summary strong {
+  margin: 0;
+  font-size: 18px;
+}
+
+.google-account-summary p {
+  margin: 0;
+}
+
+.google-location-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.google-location-name,
+.google-location-more,
+.overview-card .google-location-name,
+.overview-card .google-location-more {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #d8d8d1;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.google-location-name small,
+.overview-card .google-location-name small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.google-location-more,
+.overview-card .google-location-more {
+  color: var(--muted);
+}
+
 .access-card {
   grid-column: span 4;
 }
@@ -637,38 +690,6 @@ button:hover,
 .button-link:hover {
   background: var(--brand-dark);
   transform: translateY(-1px);
-}
-
-button[data-run-profile-audit]::before,
-button[data-sync-google]::before,
-button[data-send-email]::before,
-button[data-save-reply-profile]::before,
-button[data-generate-sample-reply]::before {
-  content: "";
-  position: absolute;
-  right: 18px;
-  bottom: 6px;
-  left: 18px;
-  height: 7px;
-  background: currentColor;
-  opacity: 0;
-  pointer-events: none;
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition:
-    opacity 160ms ease,
-    transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  -webkit-mask: url("/assets/notori-stroke.svg") center / 100% 100% no-repeat;
-  mask: url("/assets/notori-stroke.svg") center / 100% 100% no-repeat;
-}
-
-button[data-run-profile-audit]:hover::before,
-button[data-sync-google]:hover::before,
-button[data-send-email]:hover::before,
-button[data-save-reply-profile]:hover::before,
-button[data-generate-sample-reply]:hover::before {
-  opacity: 0.78;
-  transform: scaleX(1);
 }
 
 button:disabled {

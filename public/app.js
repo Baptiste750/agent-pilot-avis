@@ -227,6 +227,9 @@ async function renderAdmin(selectedClientId = "") {
     activeClientId ? api(`/api/google/status?clientId=${activeClientId}`).catch(() => ({ configured: false, connected: false })) : Promise.resolve({ configured: false, connected: false }),
     activeClientId ? api(`/api/admin/email-logs/${activeClientId}`).catch(() => ({ emailLogs: [], smtpConfigured: false })) : Promise.resolve({ emailLogs: [], smtpConfigured: false })
   ]);
+  const googleLocationsResult = googleStatus.connected
+    ? await api(`/api/google/locations?clientId=${activeClientId}`).catch((error) => ({ locations: [], error: error.message }))
+    : { locations: [] };
 
   layout(`
     <div class="page-head">
@@ -257,7 +260,7 @@ async function renderAdmin(selectedClientId = "") {
         </details>
       </aside>
       <section>
-        ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews, googleStatus, emailLogResult) : "<p>Aucun client.</p>"}
+        ${activeClientId ? adminClientPanel(clients.find((client) => client.id === activeClientId), reviews, googleStatus, emailLogResult, googleLocationsResult) : "<p>Aucun client.</p>"}
       </section>
     </div>
   `);
@@ -411,7 +414,7 @@ function clientRow(client, selectedClientId) {
   `;
 }
 
-function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emailLogs: [], smtpConfigured: false }) {
+function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emailLogs: [], smtpConfigured: false }, googleLocationsResult = { locations: [] }) {
   const pendingReviews = reviews.filter((review) => review.status === "pending");
   const historyReviews = reviews.filter((review) => review.status !== "pending");
   const pending = pendingReviews.length;
@@ -426,7 +429,6 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
   const nextStatus = client.status === "active" ? "suspended" : "active";
   const statusActionLabel = client.status === "active" ? "Suspendre" : "Réactiver";
   const emailAlreadySent = emailedClientIds.has(client.id);
-  const googleConnectedText = googleStatus.connectedEmail || "Compte Google non connecté";
   return `
     <div class="panel cockpit-panel">
       <div class="client-hero">
@@ -445,8 +447,7 @@ function adminClientPanel(client, reviews, googleStatus, emailLogResult = { emai
       <div class="client-overview">
         <div class="overview-card google-card">
           <span>Google</span>
-          <strong>${googleStatusLabel(googleStatus)}</strong>
-          <p>${googleConnectedText}</p>
+          ${googleAccountOverview(googleStatus, googleLocationsResult)}
         </div>
         <div class="overview-card access-card">
           <span>Accès client</span>
@@ -607,11 +608,58 @@ function legalHistory(logs) {
   `;
 }
 
-function googleStatusLabel(status) {
-  if (!status.configured) return "non configuré";
-  if (!status.connected) return "à connecter";
-  if (!status.googleLocationId) return "fiche à choisir";
-  return "prêt";
+function selectedGoogleLocations(status, locations = []) {
+  if (!locations.length) return [];
+  if (!status.googleLocationId) return locations;
+  const selected = locations.filter((location) => location.name === status.googleLocationId);
+  return selected.length ? selected : locations;
+}
+
+function googleLocationSummary(status, locationsResult = { locations: [] }) {
+  if (locationsResult.error) {
+    return `<p class="muted">Établissements indisponibles : ${escapeHtml(locationsResult.error)}</p>`;
+  }
+  const locations = selectedGoogleLocations(status, locationsResult.locations || []);
+  if (!locations.length) {
+    return `<p class="muted">${status.googleLocationId ? "Établissement sélectionné, nom à recharger depuis Google." : "Aucun établissement sélectionné."}</p>`;
+  }
+  const visibleLocations = locations.slice(0, 3);
+  const remaining = locations.length - visibleLocations.length;
+  return `
+    <div class="google-location-list">
+      ${visibleLocations
+        .map(
+          (location) => `
+            <span class="google-location-name">
+              ${escapeHtml(location.title || "Établissement Google")}
+              ${location.address ? `<small>${escapeHtml(location.address)}</small>` : ""}
+            </span>
+          `
+        )
+        .join("")}
+      ${remaining > 0 ? `<span class="google-location-more">+${remaining} autre${remaining > 1 ? "s" : ""}</span>` : ""}
+    </div>
+  `;
+}
+
+function googleAccountOverview(status, locationsResult = { locations: [] }) {
+  if (!status.configured) {
+    return `
+      <strong>Google non configuré</strong>
+      <p>Connexion à activer côté administrateur.</p>
+    `;
+  }
+  if (!status.connected) {
+    return `
+      <strong>Compte Google non connecté</strong>
+      <p>Le client doit connecter le compte qui gère sa fiche.</p>
+    `;
+  }
+  return `
+    <strong>Compte Google connecté</strong>
+    <p>${status.connectedEmail ? escapeHtml(status.connectedEmail) : "Adresse Gmail non renseignée"}</p>
+    ${googleLocationSummary(status, locationsResult)}
+  `;
 }
 
 function emailHistory(emailLogs) {
@@ -1426,8 +1474,9 @@ function clientGooglePanel(status, locationsResult) {
   return `
     <div class="panel">
       <h2 class="branded-title">Compte Google</h2>
-      <p class="muted">Compte connecté${status.connectedEmail ? ` : ${status.connectedEmail}` : ""}.</p>
-      ${locationsResult.error ? `<p class="error">${locationsResult.error}</p>` : ""}
+      <div class="google-account-summary">
+        ${googleAccountOverview(status, locationsResult)}
+      </div>
       <form id="client-google-form">
         <label>Fiche d'établissement à utiliser
           <select name="googleLocationId" ${locations.length ? "" : "disabled"}>

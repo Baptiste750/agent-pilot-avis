@@ -463,6 +463,8 @@ async function fetchGoogleReviewsForAudit(db, client, limit = 100) {
       reviews.push(
         ...(data.reviews || []).map((review) => ({
           googleReviewId: review.reviewId || googleReviewIdFromName(review.name),
+          googleReviewName: review.name,
+          locationId: googleLocation.name,
           author: review.reviewer?.displayName || "Client Google",
           rating: starRatingToNumber(review.starRating),
           text: review.comment || "",
@@ -492,6 +494,34 @@ async function fetchGoogleReviewsForAudit(db, client, limit = 100) {
     }));
 
   return storedReviews.length ? storedReviews : getMockGoogleReviews().slice(0, limit);
+}
+
+function isReviewAfterSyncDate(review, syncFromDate) {
+  if (!syncFromDate) return true;
+  const reviewDate = new Date(review.createdAt || new Date().toISOString());
+  return reviewDate >= new Date(`${syncFromDate}T00:00:00.000Z`);
+}
+
+export function reconcileExternallyAnsweredReviews(db, client, googleReviews) {
+  const googleReviewsById = new Map(
+    googleReviews
+      .filter((review) => review.googleReviewId)
+      .map((review) => [review.googleReviewId, review])
+  );
+  let reconciled = 0;
+
+  for (const review of db.reviews) {
+    if (review.clientId !== client.id || review.status !== "pending" || !review.googleReviewId) continue;
+    const googleReview = googleReviewsById.get(review.googleReviewId);
+    if (!googleReview?.answered) continue;
+
+    review.status = "published";
+    review.publishedReply = googleReview.ownerReply || review.publishedReply || review.suggestedReply || "";
+    review.publishedAt = new Date().toISOString();
+    reconciled += 1;
+  }
+
+  return reconciled;
 }
 
 async function replyToGoogleReview(db, owner, review, comment) {
@@ -1252,7 +1282,17 @@ export async function handleApi(req, res) {
     }
 
     try {
-      const googleReviews = await fetchUnansweredGoogleReviews(db, client);
+      let googleReviews = [];
+      let reconciled = 0;
+      if (isGoogleConfigured() && client.googleLocationId && getGoogleToken(db, client.id)) {
+        const recentGoogleReviews = await fetchGoogleReviewsForAudit(db, client, 100);
+        reconciled = reconcileExternallyAnsweredReviews(db, client, recentGoogleReviews);
+        googleReviews = recentGoogleReviews.filter(
+          (review) => !review.answered && isReviewAfterSyncDate(review, client.syncFromDate)
+        );
+      } else {
+        googleReviews = await fetchUnansweredGoogleReviews(db, client);
+      }
       let imported = 0;
       const existingGoogleReviewIds = new Set(db.reviews.map((review) => review.googleReviewId).filter(Boolean));
       for (const googleReview of googleReviews) {
@@ -1275,7 +1315,7 @@ export async function handleApi(req, res) {
         imported += 1;
       }
       await saveDb(db);
-      json(res, 200, { imported, totalFound: googleReviews.length });
+      json(res, 200, { imported, reconciled, totalFound: googleReviews.length });
     } catch (error) {
       console.error(error);
       json(res, 500, { error: error.message || "Erreur pendant la synchronisation Google." });

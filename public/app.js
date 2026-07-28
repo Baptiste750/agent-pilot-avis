@@ -290,7 +290,11 @@ async function renderAdmin(selectedClientId = "") {
       const result = await api(`/api/sync-google-reviews/${activeClientId}`, { method: "POST" });
       if (result.imported > 0) forgetEmailSent(activeClientId);
       await renderAdmin(activeClientId);
-      if (result.totalFound === 0) {
+      if (result.reconciled > 0 && result.imported > 0) {
+        showNotice(`${result.imported} nouvel avis importé et ${result.reconciled} avis déjà répondu sur Google déplacé${result.reconciled > 1 ? "s" : ""} dans l'historique.`);
+      } else if (result.reconciled > 0) {
+        showNotice(`${result.reconciled} avis déjà répondu sur Google déplacé${result.reconciled > 1 ? "s" : ""} dans l'historique.`);
+      } else if (result.totalFound === 0) {
         showNotice("Google ne renvoie aucun nouvel avis non répondu pour cette fiche et cette date de début.", "warning");
       } else if (result.imported === 0) {
         showNotice(`${result.totalFound} avis non répondu trouvé, mais déjà présent dans l'outil.`, "warning");

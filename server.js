@@ -37,11 +37,30 @@ async function servePublic(req, res) {
   }
 }
 
-await initApi();
+let apiReadyPromise;
+
+async function ensureApiReady() {
+  apiReadyPromise ||= initApi();
+  try {
+    await apiReadyPromise;
+  } catch (error) {
+    apiReadyPromise = undefined;
+    throw error;
+  }
+}
 
 const server = createServer(async (req, res) => {
   try {
     if (req.url.startsWith("/api/")) {
+      try {
+        await ensureApiReady();
+      } catch (error) {
+        console.error(error);
+        json(res, 503, {
+          error: "Stockage Supabase indisponible. Le projet est probablement en pause, réactivez-le depuis le dashboard Supabase."
+        });
+        return;
+      }
       await handleApi(req, res);
       return;
     }

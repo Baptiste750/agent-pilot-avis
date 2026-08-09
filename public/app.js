@@ -37,7 +37,11 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Erreur inattendue.");
+  if (!response.ok) {
+    const error = new Error(data.error || "Erreur inattendue.");
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -216,6 +220,21 @@ function renderLogin() {
     } catch (error) {
       document.querySelector("#login-error").textContent = error.message;
     }
+  });
+}
+
+function renderServiceUnavailable(message = "Le stockage Supabase est indisponible.") {
+  app.innerHTML = `
+    <section class="login service-unavailable">
+      <img class="login-mark" src="/assets/notori-mark.png" alt="" aria-hidden="true" />
+      <h1>Notori</h1>
+      <p class="error">${escapeHtml(message)}</p>
+      <p class="muted">Si le projet Supabase a été mis en pause, réactivez-le depuis le dashboard Supabase puis rechargez cette page après quelques minutes.</p>
+      <button type="button" data-retry-app>Réessayer</button>
+    </section>
+  `;
+  document.querySelector("[data-retry-app]")?.addEventListener("click", () => {
+    boot();
   });
 }
 
@@ -1597,7 +1616,11 @@ async function boot() {
     const me = await api("/api/me");
     if (me.role === "admin") await renderAdmin();
     else await renderClient();
-  } catch {
+  } catch (error) {
+    if (error.status === 503) {
+      renderServiceUnavailable(error.message);
+      return;
+    }
     renderLogin();
   }
 }

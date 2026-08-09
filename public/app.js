@@ -668,6 +668,13 @@ function googleAccountOverview(status, locationsResult = { locations: [] }) {
       <p>Connexion à activer côté administrateur.</p>
     `;
   }
+  if (status.needsReconnect) {
+    return `
+      <strong>Compte Google à reconnecter</strong>
+      <p>${status.connectedEmail ? escapeHtml(status.connectedEmail) : "Adresse Gmail non renseignée"}</p>
+      <p>Autorisation Business Profile manquante pour lire les avis.</p>
+    `;
+  }
   if (!status.connected) {
     return `
       <strong>Compte Google non connecté</strong>
@@ -1483,8 +1490,14 @@ function clientGooglePanel(status, locationsResult) {
     return `
       <div class="panel">
         <h2 class="branded-title">Compte Google</h2>
-        <p class="muted">Connectez le compte Google qui gère votre fiche d'établissement.</p>
-        <a class="button-link" href="/api/google/start">Connecter mon compte Google</a>
+        <p class="muted">
+          ${
+            status.needsReconnect
+              ? "Reconnectez le compte Google en acceptant l'autorisation Business Profile pour permettre à Notori de lire vos avis."
+              : "Connectez le compte Google qui gère votre fiche d'établissement."
+          }
+        </p>
+        <a class="button-link" href="/api/google/start">${status.needsReconnect ? "Reconnecter Google" : "Connecter mon compte Google"}</a>
       </div>
     `;
   }

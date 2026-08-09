@@ -21,6 +21,10 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `${APP_BASE_URL.replace(/\/$/, "")}/api/google/callback`;
 const GOOGLE_SCOPE = "https://www.googleapis.com/auth/business.manage https://www.googleapis.com/auth/userinfo.email";
+const GOOGLE_BUSINESS_SCOPES = [
+  "https://www.googleapis.com/auth/business.manage",
+  "https://www.googleapis.com/auth/plus.business.manage"
+];
 const DEFAULT_EMAIL_SUBJECT_TEMPLATE = "Vos réponses aux avis Google sont prêtes - {{businessName}}";
 const DEFAULT_EMAIL_BODY_TEMPLATE =
   "Bonjour {{contactName}},\n\nVous avez {{pendingReviews}} avis Google à traiter cette semaine, avec une moyenne de {{averageRating}}/5.\n\nCliquez ici pour les relire, modifier les réponses proposées et publier celles qui vous conviennent : {{loginUrl}}\n\nBonne journée,\nNotori";
@@ -278,6 +282,22 @@ function getGoogleToken(db, clientId) {
   return db.googleTokens?.find((token) => token.clientId === clientId || token.id === clientId) || null;
 }
 
+function googleScopeList(scope = "") {
+  return String(scope || "")
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function hasGoogleBusinessScope(scope = "") {
+  const scopes = new Set(googleScopeList(scope));
+  return GOOGLE_BUSINESS_SCOPES.some((requiredScope) => scopes.has(requiredScope));
+}
+
+function googleBusinessScopeMessage() {
+  return "La connexion Google doit être refaite : Notori n'a pas reçu l'autorisation Business Profile nécessaire pour lire et répondre aux avis.";
+}
+
 function parseGoogleLocationId(value) {
   const match = String(value || "").match(/accounts\/([^/]+)\/locations\/([^/]+)/);
   if (!match) return null;
@@ -305,6 +325,9 @@ async function googleRequest(db, clientId, url, options = {}) {
   });
   if (!response.ok) {
     const text = await response.text();
+    if (response.status === 403 && text.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT")) {
+      throw new Error(googleBusinessScopeMessage());
+    }
     throw new Error(`Erreur Google ${response.status}: ${text}`);
   }
   if (response.status === 204) return {};
@@ -319,6 +342,7 @@ function googleReviewIdFromName(name) {
 async function getGoogleAccessToken(db, clientId) {
   const token = getGoogleToken(db, clientId);
   if (!token?.refreshToken) throw new Error("Google Business Profile n'est pas encore connecté.");
+  if (!hasGoogleBusinessScope(token.scope)) throw new Error(googleBusinessScopeMessage());
 
   if (token.accessToken && token.expiresAt && new Date(token.expiresAt).getTime() > Date.now() + 60_000) {
     return token.accessToken;
@@ -339,6 +363,7 @@ async function getGoogleAccessToken(db, clientId) {
 
   token.accessToken = data.access_token;
   token.expiresAt = new Date(Date.now() + Number(data.expires_in || 3600) * 1000).toISOString();
+  if (data.scope) token.scope = data.scope;
   token.updatedAt = new Date().toISOString();
   await saveDb(db);
   return token.accessToken;
@@ -1010,10 +1035,17 @@ export async function handleApi(req, res) {
       if (!client) throw new Error("Client introuvable pour la connexion Google.");
 
       const existing = getGoogleToken(db, client.id);
+      if (!hasGoogleBusinessScope(data.scope || "")) {
+        db.googleTokens = db.googleTokens.filter((item) => item.clientId !== client.id && item.id !== client.id);
+        await saveDb(db);
+        throw new Error(googleBusinessScopeMessage());
+      }
       const token = existing || { id: client.id, clientId: client.id, createdAt: new Date().toISOString() };
+      const reusableRefreshToken = existing?.refreshToken && hasGoogleBusinessScope(existing.scope) ? existing.refreshToken : "";
       token.clientId = client.id;
       token.accessToken = data.access_token || token.accessToken || "";
-      token.refreshToken = data.refresh_token || token.refreshToken || "";
+      token.refreshToken = data.refresh_token || reusableRefreshToken;
+      if (!token.refreshToken) throw new Error("Google n'a pas renvoyé de jeton durable. Relancez la connexion Google en acceptant toutes les autorisations demandées.");
       token.expiresAt = new Date(Date.now() + Number(data.expires_in || 3600) * 1000).toISOString();
       token.scope = data.scope || GOOGLE_SCOPE;
       token.connectedEmail = (await fetchGoogleEmail(token.accessToken)) || token.connectedEmail || "";
@@ -1047,9 +1079,11 @@ export async function handleApi(req, res) {
     const client = db.clients.find((item) => item.id === clientId);
     if (!client) return json(res, 404, { error: "Client introuvable." });
     const token = getGoogleToken(db, clientId);
+    const hasBusinessScope = hasGoogleBusinessScope(token?.scope || "");
     json(res, 200, {
       configured: isGoogleConfigured(),
-      connected: Boolean(token?.refreshToken),
+      connected: Boolean(token?.refreshToken && hasBusinessScope),
+      needsReconnect: Boolean(token?.refreshToken && !hasBusinessScope),
       connectedEmail: token?.connectedEmail || "",
       scope: token?.scope || "",
       googleLocationId: client.googleLocationId || ""
@@ -1067,7 +1101,8 @@ export async function handleApi(req, res) {
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", GOOGLE_SCOPE);
     authUrl.searchParams.set("access_type", "offline");
-    authUrl.searchParams.set("prompt", "consent");
+    authUrl.searchParams.set("prompt", "consent select_account");
+    authUrl.searchParams.set("include_granted_scopes", "false");
     authUrl.searchParams.set("state", state);
     res.writeHead(302, {
       location: authUrl.toString(),
@@ -1293,8 +1328,9 @@ export async function handleApi(req, res) {
     const client = db.clients.find((item) => item.id === clientId);
     if (!client) return json(res, 404, { error: "Client introuvable." });
     if (client.status !== "active") return json(res, 403, { error: "Ce compte client est suspendu." });
-    if (isGoogleConfigured() && client.googleLocationId && !getGoogleToken(db, client.id)) {
-      return json(res, 400, { error: "Le client doit d'abord connecter son compte Google." });
+    const googleToken = getGoogleToken(db, client.id);
+    if (isGoogleConfigured() && client.googleLocationId && (!googleToken?.refreshToken || !hasGoogleBusinessScope(googleToken.scope))) {
+      return json(res, 400, { error: googleToken?.refreshToken ? googleBusinessScopeMessage() : "Le client doit d'abord connecter son compte Google." });
     }
 
     try {
@@ -1334,7 +1370,8 @@ export async function handleApi(req, res) {
       json(res, 200, { imported, reconciled, totalFound: googleReviews.length });
     } catch (error) {
       console.error(error);
-      json(res, 500, { error: error.message || "Erreur pendant la synchronisation Google." });
+      const message = error.message || "Erreur pendant la synchronisation Google.";
+      json(res, message === googleBusinessScopeMessage() ? 400 : 500, { error: message });
     }
     return;
   }

@@ -16,5 +16,11 @@
       "src": "/(.*)",
       "dest": "server.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/supabase-keepalive",
+      "schedule": "15 8 * * 1,4"
+    }
   ]
 }

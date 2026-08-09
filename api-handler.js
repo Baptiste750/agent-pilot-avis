@@ -15,6 +15,7 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
 const SMTP_FROM_NAME = process.env.SMTP_FROM_NAME || "Notori";
+const CRON_SECRET = process.env.CRON_SECRET || "";
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://127.0.0.1:${PORT}`;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
@@ -948,6 +949,21 @@ export async function handleApi(req, res) {
       "set-cookie": `session=${token}; HttpOnly; Path=/; SameSite=Lax`
     });
     res.end(JSON.stringify({ role: "client" }));
+    return;
+  }
+
+  if (url.pathname === "/api/cron/supabase-keepalive" && req.method === "GET") {
+    if (!CRON_SECRET || req.headers.authorization !== `Bearer ${CRON_SECRET}`) {
+      json(res, 401, { error: "Cron non autorisé." });
+      return;
+    }
+    const db = await loadDb();
+    json(res, 200, {
+      ok: true,
+      storage: getStorageLabel(),
+      clients: db.clients.length,
+      checkedAt: new Date().toISOString()
+    });
     return;
   }
 

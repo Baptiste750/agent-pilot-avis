@@ -310,9 +310,13 @@ async function renderAdmin(selectedClientId = "") {
       button.textContent = "Synchronisation en cours...";
       showNotice("Synchronisation Google en cours. Cela peut prendre quelques secondes.", "warning");
       const result = await api(`/api/sync-google-reviews/${activeClientId}`, { method: "POST" });
-      if (result.imported > 0) forgetEmailSent(activeClientId);
+      if (result.imported > 0 || result.reactivated > 0) forgetEmailSent(activeClientId);
       await renderAdmin(activeClientId);
-      if (result.reconciled > 0 && result.imported > 0) {
+      if (result.reactivated > 0 && result.imported > 0) {
+        showNotice(`${result.imported} nouvel avis importé et ${result.reactivated} avis remis à traiter car Google les indique sans réponse.`);
+      } else if (result.reactivated > 0) {
+        showNotice(`${result.reactivated} avis remis à traiter car Google les indique sans réponse.`);
+      } else if (result.reconciled > 0 && result.imported > 0) {
         showNotice(`${result.imported} nouvel avis importé et ${result.reconciled} avis déjà répondu sur Google déplacé${result.reconciled > 1 ? "s" : ""} dans l'historique.`);
       } else if (result.reconciled > 0) {
         showNotice(`${result.reconciled} avis déjà répondu sur Google déplacé${result.reconciled > 1 ? "s" : ""} dans l'historique.`);

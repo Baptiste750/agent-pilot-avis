@@ -757,7 +757,6 @@ async function buildAudit(client, reviews) {
       body: JSON.stringify({
         model: OPENAI_ONBOARDING_MODEL,
         input: prompt,
-        temperature: 0.2,
         max_output_tokens: 1200
       })
     });
@@ -906,7 +905,6 @@ async function generateReplyProfile(client, audit, answers = {}) {
       body: JSON.stringify({
         model: OPENAI_ONBOARDING_MODEL,
         input,
-        temperature: 0.35,
         max_output_tokens: 3500
       })
     });
@@ -955,7 +953,6 @@ async function generateSampleReply(client, prompt, review) {
       body: JSON.stringify({
         model: route.model,
         input,
-        temperature: 0.35,
         max_output_tokens: 350
       })
     });
@@ -1599,7 +1596,6 @@ async function generateSuggestedReply(client, review) {
       body: JSON.stringify({
         model: route.model,
         input: prompt,
-        temperature: 0.4,
         max_output_tokens: 350
       })
     });

@@ -20,7 +20,7 @@
   "crons": [
     {
       "path": "/api/cron/supabase-keepalive",
-      "schedule": "15 8 * * 1,4"
+      "schedule": "15 8 * * *"
     }
   ]
 }

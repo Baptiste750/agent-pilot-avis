@@ -153,3 +153,7 @@ GOOGLE_REDIRECT_URI="https://agent-pilot-avis.vercel.app/api/google/callback"
 9. Le client se connecte à son espace, clique sur `Connecter mon compte Google`, puis choisit la fiche d'établissement à utiliser.
 
 Important : la table Supabase `google_tokens` doit exister pour conserver la connexion Google. Elle est incluse dans [supabase/schema.sql](supabase/schema.sql).
+
+Important : dans Google Cloud, l'écran de consentement OAuth doit être publié en Production avant une utilisation client réelle. Si l'application reste en statut `Testing`, Google peut émettre des refresh tokens qui expirent au bout de 7 jours pour les scopes Business Profile. Dans ce cas, le client devra reconnecter son compte régulièrement, même si Notori stocke correctement le refresh token.
+
+La tâche cron Vercel `/api/cron/supabase-keepalive` maintient Supabase actif et rafraîchit aussi les tokens Google stockés. Elle évite les expirations par inactivité, mais ne peut pas contourner une expiration imposée par Google lorsque l'écran OAuth est en mode `Testing` ou lorsqu'un utilisateur révoque l'accès.

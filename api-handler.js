@@ -298,6 +298,15 @@ function googleBusinessScopeMessage() {
   return "La connexion Google doit être refaite : Notori n'a pas reçu l'autorisation Business Profile nécessaire pour lire et répondre aux avis.";
 }
 
+function googleRefreshFailureMessage(data = {}) {
+  const error = data.error || "";
+  const description = data.error_description || "";
+  if (error === "invalid_grant") {
+    return "Connexion Google expirée ou révoquée par Google. Si cela revient tous les 7 à 10 jours, vérifiez que l'écran de consentement OAuth Notori est publié en Production dans Google Cloud, puis reconnectez le compte Google une dernière fois.";
+  }
+  return `Impossible de rafraîchir Google: ${description || error || "erreur inconnue"}`;
+}
+
 function parseGoogleLocationId(value) {
   const match = String(value || "").match(/accounts\/([^/]+)\/locations\/([^/]+)/);
   if (!match) return null;
@@ -359,7 +368,7 @@ async function getGoogleAccessToken(db, clientId) {
     })
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`Impossible de rafraîchir Google: ${data.error_description || data.error || "erreur inconnue"}`);
+  if (!response.ok) throw new Error(googleRefreshFailureMessage(data));
 
   token.accessToken = data.access_token;
   token.expiresAt = new Date(Date.now() + Number(data.expires_in || 3600) * 1000).toISOString();
@@ -367,6 +376,27 @@ async function getGoogleAccessToken(db, clientId) {
   token.updatedAt = new Date().toISOString();
   await saveDb(db);
   return token.accessToken;
+}
+
+async function refreshStoredGoogleTokens(db) {
+  const tokens = (db.googleTokens || []).filter((token) => token.refreshToken && hasGoogleBusinessScope(token.scope));
+  const failures = [];
+  let refreshed = 0;
+
+  for (const token of tokens) {
+    try {
+      token.expiresAt = new Date(Date.now() - 60_000).toISOString();
+      await getGoogleAccessToken(db, token.clientId || token.id);
+      refreshed += 1;
+    } catch (error) {
+      failures.push({
+        clientId: token.clientId || token.id || "",
+        error: error.message || "Erreur Google inconnue"
+      });
+    }
+  }
+
+  return { checked: tokens.length, refreshed, failures };
 }
 
 async function fetchGoogleEmail(accessToken) {
@@ -1009,10 +1039,12 @@ export async function handleApi(req, res) {
       return;
     }
     const db = await loadDb();
+    const googleTokens = await refreshStoredGoogleTokens(db);
     json(res, 200, {
       ok: true,
       storage: getStorageLabel(),
       clients: db.clients.length,
+      googleTokens,
       checkedAt: new Date().toISOString()
     });
     return;

@@ -140,6 +140,16 @@ GOOGLE_CLIENT_SECRET="votre-client-secret-google"
 GOOGLE_REDIRECT_URI="https://agent-pilot-avis.vercel.app/api/google/callback"
 ```
 
+URLs publiques à renseigner dans Google Auth Platform > Branding :
+
+```text
+Nom de l'application : Notori
+Email d'assistance : bap.vin.bv@gmail.com
+Page d'accueil : https://agent-pilot-avis.vercel.app/notori
+Règles de confidentialité : https://agent-pilot-avis.vercel.app/privacy
+Conditions d'utilisation : https://agent-pilot-avis.vercel.app/terms
+```
+
 Étapes côté Google Cloud :
 
 1. Créer ou ouvrir un projet Google Cloud.

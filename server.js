@@ -5,6 +5,13 @@ import { handleApi, initApi, getStorageLabel } from "./api-handler.js";
 
 const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = join(process.cwd(), "public");
+const publicRouteFiles = new Map([
+  ["/notori", "/notori.html"],
+  ["/privacy", "/privacy.html"],
+  ["/confidentialite", "/privacy.html"],
+  ["/terms", "/terms.html"],
+  ["/conditions", "/terms.html"]
+]);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -24,7 +31,7 @@ function json(res, status, body) {
 
 async function servePublic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
+  const pathname = publicRouteFiles.get(url.pathname) || (url.pathname === "/" ? "/index.html" : url.pathname);
   const filePath = join(PUBLIC_DIR, pathname);
   try {
     const data = await readFile(filePath);

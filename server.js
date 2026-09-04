@@ -18,11 +18,26 @@ const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
   ".ico": "image/x-icon",
   ".png": "image/png",
   ".svg": "image/svg+xml; charset=utf-8",
   ".webmanifest": "application/manifest+json; charset=utf-8"
 };
+
+function publicHeaders(filePath, contentType) {
+  const headers = {
+    "content-type": contentType,
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "permissions-policy": "camera=(), microphone=(), geolocation=()",
+    "x-frame-options": "DENY"
+  };
+  if (extname(filePath) === ".html") {
+    headers["content-security-policy"] = "default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; base-uri 'self'; frame-ancestors 'none'";
+  }
+  return headers;
+}
 
 function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -35,11 +50,12 @@ async function servePublic(req, res) {
   const filePath = join(PUBLIC_DIR, pathname);
   try {
     const data = await readFile(filePath);
-    res.writeHead(200, { "content-type": mimeTypes[extname(filePath)] || "application/octet-stream" });
+    const contentType = mimeTypes[extname(filePath)] || "application/octet-stream";
+    res.writeHead(200, publicHeaders(filePath, contentType));
     res.end(data);
   } catch {
     const data = await readFile(join(PUBLIC_DIR, "index.html"));
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, publicHeaders(join(PUBLIC_DIR, "index.html"), "text/html; charset=utf-8"));
     res.end(data);
   }
 }

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /notori
+Allow: /privacy
+Allow: /confidentialite
+Allow: /terms
+Allow: /conditions
+Allow: /assets/
+Disallow: /api/
+Disallow: /
